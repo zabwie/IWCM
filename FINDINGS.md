@@ -121,6 +121,16 @@ We attempted to fuse the temporal pool's backward pass (AmaxBackward0 at 284μs 
 
 Files: `src/iwcm/triton_ops.py` (appended functions: `_AmaxFunction`, `_amax_scatter_kernel`, `fused_temporal_pool_amax_opt`, `_FusedTemporalPoolFunction`, `_pool_backward_kernel`).
 
+### Encoder Fix: Held/Inventory Flags on Agent Slot (Delete Accuracy Breakthrough)
+
+The oracle slot encoder previously did not set `held_by_agent` (ch9) or `key_in_inventory` (ch12) flags on the agent slot. This meant a legitimate key pickup looked **identical** to a deletion corruption in the encoder output — both showed a key slot going from occupied→empty.
+
+**Fix**: When `state["inventory"]` is non-empty, set ch9=1 and ch12=1 (if carrying a key) on the agent slot. This 2-bit signal lets the model distinguish pickup from deletion.
+
+**Impact** (3-seed, --num 25): Delete 0.481→0.704 (+46%), Conservation 0.790→0.867 (+10%), Invalid Rej 0.823→0.864 (+5%). Identity and swap unchanged. 77% of valid trajectories now have held flags (up from 0%).
+
+Files: `src/encoder/oracle_slot_encoder.py` (+7 lines). Data regenerated with `scripts/generate_compositional_grid.py --num 25`.
+
 ---
 
 ## Accuracy Results — 5-Seed Comparison

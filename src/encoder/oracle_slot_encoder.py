@@ -50,6 +50,15 @@ def encode_oracle_slots(
         pr, pc = prev_state.get("agent_pos", (ar, ac))
         slots[obj_idx, 7] = (ar - pr) / grid_size
         slots[obj_idx, 8] = (ac - pc) / grid_size
+    # Held/inventory flags on agent slot (critical for delete vs pickup distinction)
+    inventory = state.get("inventory", [])
+    if inventory:
+        slots[obj_idx, 9] = 1.0  # held_by_agent: carrying something
+        # Check if carrying a key specifically
+        for item_id in inventory:
+            if 'key' in item_id.lower():
+                slots[obj_idx, 12] = 1.0  # key_in_inventory
+                break
     obj_idx += 1
 
     # Object slots — sort by hash for deterministic assignment

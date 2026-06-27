@@ -23,7 +23,7 @@ from .disagreement import DisagreementScorer
 from ..iwcm.model import IWCM
 from ..encoder.video_encoder import VideoEncoder
 from ..encoder.decoder import VideoDecoder
-from ..utils.logging import MetricsLogger
+from src.utils.logging import MetricsLogger
 
 
 class TAMGTrainer:

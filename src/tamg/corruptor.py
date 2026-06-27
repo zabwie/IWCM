@@ -16,7 +16,7 @@ from .mutations.families import (
     temporal_splice_mutation,
     CycleBreakingMutation,
 )
-from ..utils.base import BaseModel
+from src.utils.base import BaseModel
 
 
 class TAMGCorruptor(BaseModel):

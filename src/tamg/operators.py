@@ -14,7 +14,7 @@ from typing import List, Optional
 from sklearn.cluster import KMeans
 import numpy as np
 
-from ..utils.base import BaseModel
+from src.utils.base import BaseModel
 
 
 class OperatorBasis(BaseModel):

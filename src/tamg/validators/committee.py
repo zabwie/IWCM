@@ -17,7 +17,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from typing import List, Optional, Dict, Tuple
-from ..utils.base import BaseModel
+from src.utils.base import BaseModel
 
 
 class Validator(BaseModel):

@@ -371,3 +371,87 @@ def build_ablation_models(d_state: int, d_action: int = 11, hidden_dim: int = 25
         for k in zero_keys: m.energy_fn.lambdas[k] = 0.0
         models[name] = m
     return models
+
+
+def evaluate_model(
+    model: IWCM,
+    data: dict,
+    device: str = "cuda",
+) -> dict:
+    """Run all 10 evaluation metrics on a trained model.
+
+    Args:
+        model: Trained IWCM model.
+        data: Dict with keys matching metric requirements:
+              valid_trajs, invalid_trajs_by_type, corrupted_trajs, original_trajs,
+              counterfactual_pairs, spliced_trajs, global_invalid_trajs,
+              test_scenarios, cross_surface_train, cross_surface_test.
+        device: Device for computation.
+
+    Returns:
+        Dict of all metric results.
+    """
+    results = {}
+
+    # Metric 1: Cross-surface law generalization
+    if "cross_surface_train" in data and "cross_surface_test" in data:
+        results["cross_surface"] = metric_cross_surface_law_generalization(
+            model, data["cross_surface_train"], data["cross_surface_test"], device,
+        )
+
+    # Metric 2: Valid/invalid classification
+    if "valid_trajs" in data and "invalid_trajs_by_type" in data:
+        results["classification"] = metric_valid_invalid_classification(
+            model, data["valid_trajs"], data["invalid_trajs_by_type"], device,
+        )
+
+    # Metric 3: Long-horizon drift
+    if "valid_trajs" in data:
+        rollout = RolloutModel(d_state=model.d_state, d_action=model.d_action)
+        rollout.to(device)
+        results["drift"] = metric_long_horizon_drift(
+            model, rollout, data["valid_trajs"][:100],
+            horizons=[10, 25, 50], device=device,
+        )
+
+    # Metric 4: Repair success
+    if "corrupted_trajs" in data and "original_trajs" in data:
+        results["repair"] = metric_repair_success(
+            model, data["corrupted_trajs"][:100],
+            data["original_trajs"][:100], device,
+        )
+
+    # Metric 5: Planning success
+    if "test_scenarios" in data:
+        results["planning"] = metric_planning_success(
+            model, data["test_scenarios"], num_trials=10, device=device,
+        )
+
+    # Metric 6: Energy calibration
+    if "valid_trajs" in data and "invalid_trajs_by_type" in data:
+        all_invalid = []
+        for trajs in data["invalid_trajs_by_type"].values():
+            all_invalid.extend(trajs[:50])
+        results["energy_calibration"] = metric_energy_calibration(
+            model, data["valid_trajs"][:100], all_invalid, device,
+        )
+
+    # Metric 7: Global violation detection
+    if "global_invalid_trajs" in data:
+        local_model = IWCM(model.d_state, model.d_action, 128)
+        local_model.energy_fn.lambdas["boundary"] = 0.0
+        local_model.energy_fn.lambdas["invariant"] = 0.0
+        local_model.energy_fn.lambdas["effect"] = 0.0
+        local_model.energy_fn.lambdas["counterfactual"] = 0.0
+        local_model.to(device)
+        results["global_violation"] = metric_global_violation_detection(
+            model, local_model, data["global_invalid_trajs"], device,
+        )
+
+    # Metric 8: Counterfactual locality
+    if "counterfactual_pairs" in data:
+        results["counterfactual_locality"] = metric_counterfactual_locality(
+            model, data["counterfactual_pairs"], device,
+        )
+
+    return results

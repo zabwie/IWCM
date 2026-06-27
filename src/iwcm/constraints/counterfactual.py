@@ -12,6 +12,8 @@ from .base import ConstraintHead
 
 
 class CounterfactualHead(ConstraintHead):
+    name = "counterfactual"
+
     def __init__(self, d_state: int, d_action: int = 11, hidden_dim: int = 256):
         super().__init__(d_state, d_action, hidden_dim)
         self.action_proj = nn.Linear(d_action, d_action)

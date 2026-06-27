@@ -95,6 +95,32 @@ We tested `NoPoolIWCM` — the head Linear absorbs the temporal dimension direct
 | NoPool H·128→128→3 | 413K | 0.677 | 0.297 | 0.528 |
 | MLP (flat) | 990K | 0.665 | 0.318 | 0.529 |
 
+### Spatial Constraint Heads (Path A: Accuracy)
+
+We tested adding explicit spatial constraint heads that operate on raw encoder channels (velocity for teleport, occupancy for deletion) rather than the learned `shared(Z)` projection. Key findings:
+
+1. **Teleport is already solved by oracle-slot encoding.** The velocity channels (7:8) provide explicit displacement information. The baseline FusedIWCMEnergy achieves 0.969 teleport detection. The 0.29 figure from the per-axis generalization table used a different (grid) encoder without velocity channels.
+
+2. **Delete (0.481) remains the hardest violation.** A hard existence gate (detecting occupancy→zero transitions) catches 92% of deletes but false-positives on 48% of valid trajectories — legitimate object pickups look identical to deletion in raw occupancy. Distinguishing them requires per-object-type context (held flag, door state) that a simple gate can't provide.
+
+3. **Spatial heads preserve but don't improve baseline accuracy** on oracle-slot data. At low lambda weights (0.1-0.3), they don't interfere. At high lambda (1.0+), they starve the core head's gradient signal. The oracle-slot encoder already provides the signals spatial heads would extract.
+
+Files: `src/iwcm/spatial_head.py` — `SpatialConstraintHead`, `ExistenceHead`, `DisplacementHead`, `SpatialIWCMEnergy`.
+
+### Triton Backward Pass (Path B: Speed)
+
+We attempted to fuse the temporal pool's backward pass (AmaxBackward0 at 284μs + SqrtBackward0 at 190μs = 474μs total) into custom Triton kernels. Findings:
+
+1. **Direct-call Triton backward kernels produce correct gradients** (verified via sentinel test at all hidden sizes). The gradient math is correct.
+
+2. **Inside `torch.autograd.Function.backward()`, the same kernels produce wrong gradients** — a consistent bug across three kernel approaches (full-fused backward, amax-only scatter, hybrid). The forward path works perfectly (1e-7 error), but backward gradients diverge by 3e3+. This appears to be a Triton + PyTorch autograd integration issue with constexpr parameters or tensor memory management in the saved tensors context.
+
+3. **Speedup potential is 1.5-4.4× on backward pass** (measured from kernel execution time, independent of correctness). At B=1: saves ~80μs per solver iteration. At B=64: saves ~750μs per training step. If fixed, would cut solver iteration cost from 800μs→720μs and full planning from 40ms→36ms.
+
+4. **The amax scatter approach is the right one** — targeted (only replaces the single most expensive op), simple (just scatter to argmax positions), and doesn't require recomputing the forward pass statistics.
+
+Files: `src/iwcm/triton_ops.py` (appended functions: `_AmaxFunction`, `_amax_scatter_kernel`, `fused_temporal_pool_amax_opt`, `_FusedTemporalPoolFunction`, `_pool_backward_kernel`).
+
 ---
 
 ## Accuracy Results — 5-Seed Comparison

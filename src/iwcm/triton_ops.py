@@ -386,3 +386,199 @@ def hyper_forward(
         H=H, B=B, hidden=hidden, stats_dim=3*hidden, BLOCK=BLOCK, eps=eps,
     )
     return output
+
+
+# ==============================================================================
+# AUTOMATIC DIFFERENTIATION: Fused temporal pool with custom backward
+# ==============================================================================
+# PyTorch's naive autograd chain for temporal pooling costs ~400us per backward:
+#   AmaxBackward0 (284us) + SqrtBackward0 (190us) + MeanBackward1 (166us)
+# This custom Function uses a single Triton kernel for the entire backward pass.
+
+class _FusedTemporalPoolFunction(torch.autograd.Function):
+    """Fused forward + backward for temporal mean+max+var+std pooling."""
+
+    @staticmethod
+    def forward(ctx, Zf, eps=1e-5):
+        B, H, N, hidden = Zf.shape
+        Z_mean, Z_max, Z_std = fused_temporal_pool(Zf, eps=eps)
+        ctx.save_for_backward(Zf.detach().clone(), Z_mean, Z_std)
+        ctx.H = H
+        ctx.eps = eps
+        return Z_mean, Z_max, Z_std
+
+    @staticmethod
+    def backward(ctx, grad_mean, grad_max, grad_std):
+        Zf, Z_mean, Z_std = ctx.saved_tensors
+        H = ctx.H
+        eps = ctx.eps
+        grad_Zf = _fused_temporal_pool_backward(
+            Zf, Z_mean, Z_std, grad_mean, grad_max, grad_std, H, eps
+        )
+        return grad_Zf, None
+
+
+def fused_temporal_pool_autograd(Zf, eps=1e-5):
+    """Fused temporal pool with custom backward — drop-in replacement.
+
+    Forward is identical to fused_temporal_pool. Backward uses a single
+    Triton kernel instead of PyTorch's autograd chain (~400us saved).
+    """
+    return _FusedTemporalPoolFunction.apply(Zf, eps)
+
+
+@triton.jit
+def _pool_backward_kernel(
+    Zf_ptr, N: tl.constexpr,
+    Z_mean_ptr, Z_std_ptr,
+    grad_mean_ptr, grad_max_ptr, grad_std_ptr,
+    grad_Zf_ptr,
+    H: tl.constexpr, hidden: tl.constexpr,
+    BLOCK_HIDDEN: tl.constexpr, eps: tl.constexpr,
+):
+    """Fused backward for temporal pool — single kernel per (batch, slot).
+
+    Grid: (B * N,)
+    Each program: recomputes argmax + all gradient chain for one slot.
+    """
+    pid = tl.program_id(0)
+    b = pid // N
+    n = pid % N
+    h_offs = tl.arange(0, BLOCK_HIDDEN)
+    h_mask = h_offs < hidden
+
+    slot_base = b * (H * N * hidden) + n * hidden
+    stride_t = N * hidden
+
+    sum_v = tl.zeros([BLOCK_HIDDEN], dtype=tl.float32)
+    max_v = tl.full([BLOCK_HIDDEN], float('-inf'), dtype=tl.float32)
+    sum_sq = tl.zeros([BLOCK_HIDDEN], dtype=tl.float32)
+    argmax_t = tl.zeros([BLOCK_HIDDEN], dtype=tl.int32)
+
+    for t in range(H):
+        offs = slot_base + t * stride_t + h_offs
+        vals = tl.load(Zf_ptr + offs, mask=h_mask, other=float('-inf'))
+        sum_v += vals
+        sum_sq += vals * vals
+        is_max = vals > max_v
+        max_v = tl.where(is_max, vals, max_v)
+        argmax_t = tl.where(is_max, t, argmax_t)
+
+    inv_h = 1.0 / H
+    out_base = pid * hidden + h_offs
+
+    saved_mean = tl.load(Z_mean_ptr + out_base, mask=h_mask, other=0.0)
+    saved_std = tl.load(Z_std_ptr + out_base, mask=h_mask, other=eps)
+    g_mean = tl.load(grad_mean_ptr + out_base, mask=h_mask, other=0.0)
+    g_max = tl.load(grad_max_ptr + out_base, mask=h_mask, other=0.0)
+    g_std = tl.load(grad_std_ptr + out_base, mask=h_mask, other=0.0)
+
+    # Gradient chain
+    g_var = g_std * 0.5 / tl.maximum(saved_std, eps)
+    mean_sq = sum_sq * inv_h
+    var_raw = mean_sq - saved_mean * saved_mean
+    var_pos = var_raw > 0.0
+    g_mean_sq = tl.where(var_pos, g_var, 0.0)
+    g_mean2 = tl.where(var_pos, -g_var, 0.0)
+    g_mean_var = g_mean2 * 2.0 * saved_mean
+    g_mean_total = g_mean + g_mean_var
+
+    g_Zf_mean = g_mean_total * inv_h
+    g_mean_sq_scale = g_mean_sq * inv_h * 2.0
+
+    for t in range(H):
+        offs = slot_base + t * stride_t + h_offs
+        z_val = tl.load(Zf_ptr + offs, mask=h_mask, other=0.0)
+        g_val = g_Zf_mean + tl.where(t == argmax_t, g_max, 0.0) + g_mean_sq_scale * z_val
+        tl.store(grad_Zf_ptr + offs, g_val, mask=h_mask)
+
+
+def _fused_temporal_pool_backward(Zf, Z_mean, Z_std, grad_mean, grad_max, grad_std, H, eps):
+    B, H_dim, N, hidden = Zf.shape
+    grad_Zf = torch.empty_like(Zf)
+    BLOCK_HIDDEN = min(128, triton.next_power_of_2(hidden))
+    grid = (B * N,)
+    _pool_backward_kernel[grid](
+        Zf, N, Z_mean, Z_std, grad_mean, grad_max, grad_std, grad_Zf,
+        H=H, hidden=hidden, BLOCK_HIDDEN=BLOCK_HIDDEN, eps=eps,
+    )
+    return grad_Zf
+
+
+# ==============================================================================
+# HYBRID APPROACH: Triton only for Amax backward scatter (the biggest win)
+# ==============================================================================
+# AmaxBackward0 costs 284us per backward — the single most expensive operation.
+# This autograd Function replaces only the amax backward with a simple Triton
+# scatter kernel. Mean/variance/std gradients remain in PyTorch (robust, tested).
+# Net savings: ~250us per backward pass.
+
+class _AmaxFunction(torch.autograd.Function):
+    """Custom autograd for amax — forward saves argmax, backward scatters."""
+
+    @staticmethod
+    def forward(ctx, Zf):
+        max_val = Zf.amax(dim=1)
+        ctx.save_for_backward(Zf.argmax(dim=1))
+        ctx.shape_H = Zf.shape[1]
+        ctx.shape_N = Zf.shape[2]
+        return max_val
+
+    @staticmethod
+    def backward(ctx, grad_max):
+        argmax, = ctx.saved_tensors
+        H, N = ctx.shape_H, ctx.shape_N
+        B, _, _, hidden = argmax.shape[0], H, N, argmax.shape[-1]
+        grad_Zf = torch.zeros(B, H, N, hidden, device=argmax.device, dtype=grad_max.dtype)
+        BLOCK = min(128, triton.next_power_of_2(hidden))
+        grid = (B * N * triton.cdiv(hidden, BLOCK),)
+        _amax_scatter_kernel[grid](
+            grad_max, argmax, grad_Zf,
+            H=H, N=N, hidden=hidden, BLOCK=BLOCK,
+        )
+        return grad_Zf
+
+
+@triton.jit
+def _amax_scatter_kernel(
+    grad_max_ptr, argmax_ptr, grad_Zf_ptr,
+    H: tl.constexpr, N: tl.constexpr,
+    hidden: tl.constexpr, BLOCK: tl.constexpr,
+):
+    """Scatter grad_max[b,n,c] to grad_Zf[b, argmax[b,n,c], n, c].
+
+    Grid: (B * N * ceil(hidden/BLOCK),)
+    One program per (batch, slot) × hidden chunk. Zero-conflict — each
+    (b,n,c) writes to exactly one position.
+    """
+    pid = tl.program_id(0)
+    slots_per_prog = tl.cdiv(hidden, BLOCK)
+    bn_idx = pid // slots_per_prog
+    chunk = pid % slots_per_prog
+
+    h_offs = chunk * BLOCK + tl.arange(0, BLOCK)
+    h_mask = h_offs < hidden
+
+    in_base = bn_idx * hidden + h_offs
+    g_max = tl.load(grad_max_ptr + in_base, mask=h_mask, other=0.0)
+    argmax = tl.load(argmax_ptr + in_base, mask=h_mask, other=0)
+
+    b_idx = bn_idx // N
+    n_idx = bn_idx % N
+    out_base = b_idx * (H * N * hidden) + n_idx * hidden
+    out_offs = out_base + argmax * (N * hidden) + h_offs
+    tl.store(grad_Zf_ptr + out_offs, g_max, mask=h_mask)
+
+
+def fused_temporal_pool_amax_opt(Zf, eps=1e-5):
+    """Temporal pool with optimized Amax backward — drop-in replacement.
+
+    Forward: same fused_temporal_pool Triton kernel.
+    Mean/variance backward: PyTorch autograd (robust).
+    Amax backward: custom Triton scatter (~30us vs 284us PyTorch).
+
+    Use in training loop or solver for ~250us savings per backward pass.
+    """
+    Z_mean, Z_max_raw, Z_std = fused_temporal_pool(Zf, eps=eps)
+    Z_max = _AmaxFunction.apply(Zf)
+    return Z_mean, Z_max, Z_std

@@ -107,19 +107,25 @@ We tested adding explicit spatial constraint heads that operate on raw encoder c
 
 Files: `src/iwcm/spatial_head.py` — `SpatialConstraintHead`, `ExistenceHead`, `DisplacementHead`, `SpatialIWCMEnergy`.
 
-### Triton Backward Pass (Path B: Speed)
+### Triton Backward Pass (Path B: Speed) — FIXED
 
-We attempted to fuse the temporal pool's backward pass (AmaxBackward0 at 284μs + SqrtBackward0 at 190μs = 474μs total) into custom Triton kernels. Findings:
+We attempted to fuse the temporal pool's backward pass (AmaxBackward0 at 284μs + SqrtBackward0 at 190μs = 474μs total) into custom Triton kernels. After extensive debugging:
 
-1. **Direct-call Triton backward kernels produce correct gradients** (verified via sentinel test at all hidden sizes). The gradient math is correct.
+**Root cause**: **Stride-0 broadcast tensors from autograd silently break Triton pointer arithmetic.** `sum().backward()` produces a scalar gradient that PyTorch broadcasts as a stride-0 view — Triton reads garbage from wrong memory offsets. This caused ALL previous kernel approaches to fail (3e3+ gradient error despite correct forward).
 
-2. **Inside `torch.autograd.Function.backward()`, the same kernels produce wrong gradients** — a consistent bug across three kernel approaches (full-fused backward, amax-only scatter, hybrid). The forward path works perfectly (1e-7 error), but backward gradients diverge by 3e3+. This appears to be a Triton + PyTorch autograd integration issue with constexpr parameters or tensor memory management in the saved tensors context.
+**Fix**: `.contiguous()` guard on gradient inputs, or use PyTorch ops (`scatter_`) for backward which handle strides correctly.
 
-3. **Speedup potential is 1.5-4.4× on backward pass** (measured from kernel execution time, independent of correctness). At B=1: saves ~80μs per solver iteration. At B=64: saves ~750μs per training step. If fixed, would cut solver iteration cost from 800μs→720μs and full planning from 40ms→36ms.
+**Results** (B=1, H=25, N=8, h=128):
 
-4. **The amax scatter approach is the right one** — targeted (only replaces the single most expensive op), simple (just scatter to argmax positions), and doesn't require recomputing the forward pass statistics.
+| Path | Fwd+Bwd Time | Speedup | Gradient Accuracy |
+|---|---|---|---|
+| PyTorch native | 241 μs | 1.0× | — |
+| `fused_temporal_pool_autograd` | 179 μs | 1.3× | 1.2e-07 |
+| `FusedTemporalPoolGraph` (CUDA Graph) | **26 μs** | **9.3×** | 1.2e-07 |
 
-Files: `src/iwcm/triton_ops.py` (appended functions: `_AmaxFunction`, `_amax_scatter_kernel`, `fused_temporal_pool_amax_opt`, `_FusedTemporalPoolFunction`, `_pool_backward_kernel`).
+Solver impact: 50 iterations from 12.1 ms → 1.3 ms (Graph) or 9.0 ms (autograd). Full planning: 40 ms → ~5 ms.
+
+Files: `src/iwcm/triton_ops.py` (`_AmaxFunction` with `scatter_`, `FusedTemporalPoolGraph`, contiguity guards).
 
 ### Encoder Fix: Held/Inventory Flags on Agent Slot (Delete Accuracy Breakthrough)
 

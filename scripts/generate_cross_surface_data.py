@@ -76,12 +76,13 @@ def generate_conservation_violations(
     num: int, horizon: int, seed: int = 42,
 ) -> Tuple[List[Tuple], List[Tuple]]:
     """Generate conservation violations: train=key duplicates, test=box duplicates."""
-    scenario = Scenario.from_preset("conservation_test", 8)
+    # Use multi_object scenario which has both keys and boxes
+    scenario = Scenario.from_preset("multi_object", 8)
     rng = np.random.RandomState(seed)
 
     train_invalid = []  # key duplicates
     test_invalid = []   # box duplicates
-    valid = generate_valid_trajectories("conservation_test", num, horizon, seed)
+    valid = generate_valid_trajectories("multi_object", num, horizon, seed)
 
     for i in range(num):
         env = GridWorld(grid_size=8, objects_config=scenario.to_env_config(),
@@ -151,11 +152,12 @@ def generate_identity_violations(
     num: int, horizon: int, seed: int = 42,
 ) -> Tuple[List[Tuple], List[Tuple]]:
     """Identity violations: object swaps under occlusion."""
-    scenario = Scenario.from_preset("occlusion_test", 8)
+    # Use multi_object which has keys, boxes for swaps
+    scenario = Scenario.from_preset("multi_object", 8)
     rng = np.random.RandomState(seed)
 
     train_invalid, test_invalid = [], []
-    valid = generate_valid_trajectories("occlusion_test", num, horizon, seed)
+    valid = generate_valid_trajectories("multi_object", num, horizon, seed)
 
     for i in range(num):
         env = GridWorld(grid_size=8, objects_config=scenario.to_env_config(),
@@ -243,7 +245,9 @@ def generate_locality_violations(
             for t in range(t_loc, len(ts)):
                 if b in ts[t]["objects"]:
                     old = ts[t]["objects"][b].get("pos", (0,0))
-                    ts[t]["objects"][b]["pos"] = (old[0]+rng.choice([-1,1]), old[1]+rng.choice([-1,1]))
+                    nr = min(7, max(0, old[0] + rng.choice([-1, 1])))
+                    nc = min(7, max(0, old[1] + rng.choice([-1, 1])))
+                    ts[t]["objects"][b]["pos"] = (nr, nc)
             z0_l = encode_state(ts[0], 8)
             A_l = np.array([encode_action(a) for a in actions[:horizon]])
             Z_l = np.array([encode_state(s, 8) for s in ts[1:horizon+1]])

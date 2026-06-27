@@ -12,8 +12,8 @@ from pathlib import Path
 import pickle
 
 from .scenarios import (
-    Scenario, generate_trajectories, generate_counterfactual_pairs,
-    PREDEFINED_SCENARIOS,
+    Scenario, generate_trajectory, generate_trajectories,
+    generate_counterfactual_pairs, PREDEFINED_SCENARIOS,
 )
 
 
@@ -218,16 +218,12 @@ def generate_dataset(
             use_expert = policy == "expert" or (policy == "mixed" and rng.random() < 0.8)
             p = "expert" if use_expert else "random"
 
-            states, actions, _ = Scenario.__dict__.get(
-                "generate_trajectory", generate_trajectory
-            ).__wrapped__(scenario, horizon, policy=p, seed=traj_seed)
+            states, actions, _ = generate_trajectory(
+                scenario, horizon, policy=p, seed=traj_seed,
+            )
             all_trajectories.append((states, actions))
 
     return TrajectoryDataset(all_trajectories, horizon, grid_size)
-
-
-# Fix the reference issue
-generate_dataset.__globals__["generate_trajectory"] = generate_trajectory  # type: ignore
 
 
 def save_dataset(dataset: Dataset, path: str) -> None:

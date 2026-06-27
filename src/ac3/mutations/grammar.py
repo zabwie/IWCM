@@ -9,7 +9,7 @@ from typing import List, Dict, Tuple, Optional
 from copy import deepcopy
 from dataclasses import dataclass
 
-from ..env.symbolic_state import SymbolicState, SymbolicTrajectory
+from ...env.symbolic_state import SymbolicState, SymbolicTrajectory
 
 
 # ═══════════════════════════════════════════════════════════

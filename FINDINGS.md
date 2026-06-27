@@ -292,6 +292,25 @@ The energy function forward pass is **never the bottleneck** in any real pipelin
 
 ---
 
+## Stage 2: Visual Pipeline (Limitation / Future Work)
+
+We built a video-to-IWCM pipeline to test whether learned slots can replace oracle slots. Four approaches converge to the same ceiling:
+
+| Approach | AUROC | Balanced | Switch Rate |
+|---|---|---|---|
+| Recon only | 0.69 | 0.59 | 0.88 |
+| + Temporal slot propagation | 0.67 | 0.59 | 0.87 |
+| + Hungarian slot permanence | 0.67 | 0.65 | 0.87 |
+| + Oracle-slot distillation | 0.68 | 0.65 | 0.72 |
+
+All approaches stall at AUROC ~0.68 (oracle: 0.93). The bottleneck is **temporal slot identity**: slot attention from scratch on 64×64 frames produces arbitrary slot-to-object assignments (switch rate 0.72-0.88, chance = 0.875). Decoupling appearance from identity, as in recent work (Dual-State Slot Attention, TSA, SlotContrast, SAVi), is the necessary next step.
+
+This does NOT invalidate Stage 1 — it proves constraint learning works given stable slots and identifies slot tracking as the perception bottleneck for visual world models.
+
+**Files**: `scripts/stage2_video_slots.py`, `src/encoder/video_encoder.py`, `src/encoder/slot_attention.py`, `src/encoder/decoder.py`.
+
+---
+
 ## Repository Structure
 
 ```

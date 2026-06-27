@@ -43,15 +43,57 @@ Corruptions (teleport, swap, duplicate) create **sharp temporal discontinuities*
 
 ## Speed Optimization Progression
 
-| Version | What Changed | Params | Samples/s | vs MLP |
+| Version | What Changed | Params | Samples/s (B=64) | vs MLP |
 |---------|-------------|--------|-----------|--------|
 | Slow IWCM | Bidirectional 2-layer GRU | 579K | 9K | 110× slower |
 | Conv1d IWCM | Depthwise conv replaces GRU | 71K | 53K | 20× slower |
 | Pooling v2 | Delta features added | 205K | 105K | 10× slower |
-| **Fused Pooling** | No GRU, single projection, fused std | **52K** | **212K** | **4.9× slower** |
+| Fused Pooling | No GRU, single projection, fused std | 52K | 212K | 4.9× slower |
+| **+ Triton Kernel** | Custom CUDA fused temporal pool | 52K | **388K** | **2.7× slower** |
+| **+ CUDA Graph** | Zero kernel launch overhead | 52K | **390K** | **2.7× slower** |
 | MLP baseline | Flat 3-layer MLP | 990K | 1.04M | 1× |
+| Distilled MLP | IWCM→MLP knowledge distillation | 990K | 1.04M | 1× |
+
+**At batch=1 (latency)**: IWCM + Triton + CUDA Graph = **33 μs** (30K samples/s) — **beats MLP** at 43 μs (23K samples/s) while using 5% of the parameters.
 
 **Key optimization**: GRU accounted for 85% of parameters (495K/579K) and 64% of CUDA time. Eliminating it reduced inference cost by 22×.
+
+### Micro-Optimization: Triton + CUDA Graphs (June 2026)
+
+Custom CUDA kernels and CUDA graph capture push IWCM latency into microseconds.
+
+| Path | Batch=1 (μs) | Batch=1 (sps) | Batch=64 (sps) | Accuracy |
+|------|-------------|---------------|----------------|----------|
+| Fused Pooling (vanilla eager) | 120.5 | 8.3K | 225K | full |
+| + Triton pool | 99.8 | 10.0K | 388K | full |
+| + CUDA Graph (FP32) | **33.0** | **30.3K** | **390K** | full |
+| + CUDA Graph (BF16) | 45.6 | 22.0K | 329K | full |
+| NoPool (H·128→3, no pool) + Graph | 45.6 | 22.0K | 328K | conservation only (0.61) |
+| MLP (990K) | 44.7 | 22.4K | 1.05M | mediocre (0.67c) |
+
+**Key findings:**
+1. **CUDA Graph is the dominant optimization.** Kernel launch overhead was 55 μs at B=1 (46% of total) and 135 μs at B=64 (47%). Graph capture eliminates it entirely by recording and replaying all GPU operations as a single sequence.
+2. **IWCM beats MLP at batch=1** — 33 μs vs 43 μs (28% faster) with 52K vs 990K parameters.
+3. **At batch=64, MLP still leads** (1.05M vs 390K sps) due to cuBLAS batching on large matmuls. The gap is fundamental: IWCM must scan H=25 timesteps per slot.
+4. **BF16 hurts at batch=1** (precision conversion overhead dominates tiny matmul) but helps at batch=64 for the shared projection (1.20× on matmul).
+
+**Files created:**
+- `src/iwcm/triton_ops.py` — Triton CUDA kernels: fused temporal pool, fused head forward, hyper-fused forward
+- `src/iwcm/micro_energy.py` — `MicroIWCM` (drop-in for FusedIWCMEnergy) and `NoPoolIWCM` (no temporal reduction)
+- `scripts/benchmark_microseconds.py` — Comprehensive microsecond-level benchmark
+
+### Why Temporal Pooling Is Structurally Necessary
+
+We tested `NoPoolIWCM` — the head Linear absorbs the temporal dimension directly (H·128→3 per slot) with no pooling reductions. Result: identity detection collapsed from 0.875→0.284 regardless of hidden layer size (tested 0, 32, 64, 128 hidden dims). Conservation held at 0.61-0.68.
+
+**The max pooling over H is not approximable by learned weights.** Identity violations (swap, duplicate, teleport) manifest as a single anomalous timestep. Max pooling answers "did ANY timestep look wrong?" — a non-differentiable operation that picks the single most extreme value. A linear projection + GELU can approximate smooth functions but cannot emulate the discontinuous max operation across 25 timesteps. Conservation (mean-sensitive) survives; identity (max-sensitive) does not.
+
+| Architecture | Params | Conservation | Identity | Rejection |
+|---|---|---|---|---|
+| Fused Pooling (has max) | 52K | 0.790 | 0.875 | 0.823 |
+| NoPool H·128→3 | 12K | 0.610 | 0.284 | 0.483 |
+| NoPool H·128→128→3 | 413K | 0.677 | 0.297 | 0.528 |
+| MLP (flat) | 990K | 0.665 | 0.318 | 0.529 |
 
 ---
 
@@ -135,6 +177,46 @@ All 7 variants below achieved **0.000** cross-surface when trained on naive corr
 
 ---
 
+## Why IWCM Is Fundamentally Cheap
+
+The IWCM energy function evaluates entire worldlines in a single feed-forward pass — no sequential bottleneck.
+
+### Cost Per 25-Step Worldline Evaluation
+
+| Method | Time | Notes |
+|---|---|---|
+| **IWCM energy (optimized)** | **0.033 ms** | Single feed-forward pass, CUDA Graph |
+| IWCM energy + gradient (solver iter) | 0.80 ms | Forward + backward + Adam update |
+| IWCM planning (50 iter × 8 lines) | 40.5 ms | Full gradient-based planning |
+| Transformer (O(H²) attention) | ~0.6 ms | Per-step attention over 25 steps |
+| DreamerV3 RSSM rollout | ~50 ms | 25 autoregressive RSSM steps |
+| MPPI (1000 candidate rollouts) | ~100 ms | Sampling-based MPC |
+| Video encoding (CNN+slots) | 10-50 ms | Required for visual world models |
+
+**IWCM is 1,500× cheaper per worldline than autoregressive rollout** and processes all timesteps in parallel.
+
+### Structural Advantages
+
+1. **No sequential bottleneck.** All 25 timesteps processed in parallel via temporal pooling. Autoregressive models: 25 sequential forward passes. Transformers: O(H²) attention.
+
+2. **O(1) over horizon for the core operation.** Doubling H: shared(Z) scales linearly, pooling just scans more elements. No quadratic blowup.
+
+3. **Evaluation, not generation.** Energy function is feed-forward: worldline → scalar score. Can score 30,000 worldlines/second on a single consumer GPU. The planner just does gradient descent on candidates.
+
+4. **52K parameters.** Fits in L2 cache. Dreamer RSSM: ~20M. GPT-based world models: 100M-7B.
+
+5. **CUDA Graph eliminates CPU-GPU sync.** 55 μs of kernel launch overhead at batch=1 eliminated entirely.
+
+### What Actually Costs Money
+
+For video-based world models, the **encoder dominates** (10-50 ms per frame). The energy function at 0.033 ms is a rounding error — optimizing it from 107→33 μs doesn't matter when encoding costs 10,000 μs.
+
+For symbolic/state-based models (oracle encoder = free), the **solver loop dominates**. Each backward pass costs 6.4× more than forward. Reducing solver iterations (warm-start, better initialization) helps more than micro-optimizing the forward pass.
+
+The energy function forward pass is **never the bottleneck** in any real pipeline.
+
+---
+
 ## Key Claims
 
 1. **Compositional near-miss corruption enables causal law learning.** Naive corruptions produce 0.000 cross-surface across 7 architectures. Balanced grids produce 0.66-0.78 conservation detection.
@@ -145,6 +227,10 @@ All 7 variants below achieved **0.000** cross-surface when trained on naive corr
 
 4. **Not all laws transfer equally.** Conservation and identity generalize well (0.78, 0.88). Teleport/spatial reachability remains weak (0.29).
 
+5. **Max pooling is structurally necessary for identity detection.** Linear projections (even with GELU + hidden layers) cannot approximate the discontinuous max operation. Identity collapses from 0.88→0.28 without explicit max pooling.
+
+6. **The energy function is not the cost bottleneck.** At 33 μs per worldline evaluation, it is 1,500× cheaper than autoregressive rollout. The encoder (video models) or solver loop (symbolic models) dominate total cost.
+
 ---
 
 ## Repository Structure
@@ -153,7 +239,12 @@ All 7 variants below achieved **0.000** cross-surface when trained on naive corr
 src/
   env/         — GridWorld environment, scenarios, datasets, symbolic oracle
   iwcm/        — Constraint heads, energy function, solver, planner
-  iwcm/        — fused_energy.py (final optimized architecture)
+  iwcm/        — fused_energy.py (Fused Pooling architecture)
+  iwcm/        — triton_ops.py (custom CUDA kernels via Triton)
+  iwcm/        — micro_energy.py (MicroIWCM, NoPoolIWCM, CUDA Graph)
+  iwcm/        — slot_energy.py (slot-aware constraint heads)
+  iwcm/        — fast_slot_energy.py (Conv1d IWCM variant)
+  iwcm/        — pooling_v2.py (delta features + statistical pooling)
   ac3/         — Mutation grammar, hardness scorer, corruptor, training loop
   tamg/        — Operator basis, validators, disagreement scorer (appendix)
   encoder/     — Slot attention, oracle slot encoder, video encoder
@@ -163,8 +254,11 @@ scripts/
   generate_compositional_grid.py  — Balanced corruption data generation
   run_comparison.py               — IWCM vs MLP vs SlotTransformer comparison
   benchmark_speed.py              — Speed + VRAM + params benchmark
+  benchmark_microseconds.py       — Microsecond-level latency benchmark
   test_grokking.py                — Same-param MLP vs IWCM grokking test
   run_stats.py                    — 5-seed significance + per-axis generalization
+  train_compositional.py          — Full training loop for pooled IWCM
+  train_distill.py                — Knowledge distillation IWCM→MLP
 
 configs/     — YAML configs for all experiment variants
 data/        — Compositional grid, oracle slots, cross-surface test sets

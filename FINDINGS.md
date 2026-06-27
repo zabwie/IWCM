@@ -127,15 +127,32 @@ Solver impact: 50 iterations from 12.1 ms → 1.3 ms (Graph) or 9.0 ms (autograd
 
 Files: `src/iwcm/triton_ops.py` (`_AmaxFunction` with `scatter_`, `FusedTemporalPoolGraph`, contiguity guards).
 
-### Encoder Fix: Held/Inventory Flags on Agent Slot (Delete Accuracy Breakthrough)
+### Encoder Fix: Held/Inventory Flags — Ablation Result
 
-The oracle slot encoder previously did not set `held_by_agent` (ch9) or `key_in_inventory` (ch12) flags on the agent slot. This meant a legitimate key pickup looked **identical** to a deletion corruption in the encoder output — both showed a key slot going from occupied→empty.
+Added `held_by_agent` (ch9) and `key_in_inventory` (ch12) flags to agent slot. After matched ablation (train+eval with/without flags, 3 seeds each), the flags are **neutral**: delete delta = -0.01, conservation delta = 0.00. The model does not use the 2-bit signal to distinguish pickup from deletion.
 
-**Fix**: When `state["inventory"]` is non-empty, set ch9=1 and ch12=1 (if carrying a key) on the agent slot. This 2-bit signal lets the model distinguish pickup from deletion.
+The delete improvement from 0.481→0.704 came from **data regeneration variance** (different random seeds in trajectory generation), not the encoder fix. The compositional grid has high variance across generation seeds — the original and regenerated datasets have different difficulty distributions.
 
-**Impact** (3-seed, --num 25): Delete 0.481→0.704 (+46%), Conservation 0.790→0.867 (+10%), Invalid Rej 0.823→0.864 (+5%). Identity and swap unchanged. 77% of valid trajectories now have held flags (up from 0%).
+**Lesson**: always ablate. The held flags were a plausible fix that turned out to be unused.
 
-Files: `src/encoder/oracle_slot_encoder.py` (+7 lines). Data regenerated with `scripts/generate_compositional_grid.py --num 25`.
+Files: `src/encoder/oracle_slot_encoder.py` (+7 lines, kept for completeness). Data regenerated with `scripts/generate_compositional_grid.py --num 25`.
+
+### 5-Seed Significance (Regenerated Data)
+
+| Metric | Mean ± Std | Old Baseline |
+|---|---|---|
+| Conservation | 0.879 ± 0.016 | 0.778 ± 0.070 |
+| Identity | 0.880 ± 0.019 | 0.877 ± 0.015 |
+| Delete | 0.726 ± 0.036 | — |
+| Swap | 0.709 ± 0.040 | — |
+| Teleport | 0.979 ± 0.008 | — |
+| Duplicate | 0.894 ± 0.022 | — |
+| Transform | 0.937 ± 0.005 | — |
+| Valid Acc | 0.847 ± 0.027 | — |
+| Invalid Rej | 0.874 ± 0.017 | 0.820 |
+
+Note: old baseline used different data generation; direct comparison is approximate due to data variance.
+
 
 ---
 

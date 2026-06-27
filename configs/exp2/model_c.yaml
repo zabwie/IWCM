@@ -1,0 +1,49 @@
+# Experiment 2 — Model C: TAMG with Validator Committee
+experiment_name: "exp2_model_c"
+description: "TAMG latent operators with validator committee"
+
+env:
+  grid_size: 8
+  max_objects: 5
+
+training:
+  batch_size: 16
+  learning_rate: 0.0001
+  num_epochs: 150
+  horizon: 25
+  seed: 42
+
+encoder:
+  frame_size: 64
+  num_slots: 6
+  slot_dim: 64
+  slot_iters: 3
+  content_dim: 32
+  pose_dim: 16
+  hidden_dim: 16
+
+iwcm:
+  lambda_boundary: 1.0
+  lambda_local: 1.0
+  lambda_invariant: 1.5
+  lambda_effect: 1.0
+  lambda_counterfactual: 0.5
+  use_learned_refinement: true
+
+tamg:
+  num_operators: 16
+  operator_dim: 32
+  operator_rank: 8
+  num_operator_clusters: 16
+  num_validators: 8
+  disagreement_threshold: 0.3
+  lambda_manifold: 1.0
+  lambda_minimality: 0.3
+  lambda_disagreement: 1.0
+  lambda_diversity: 0.2
+  lambda_artifact: 0.5
+  manifold_epsilon: 0.1
+  decode_threshold: 0.05
+  freeze_validators_during_corruptor_update: true
+
+use_tensorboard: true

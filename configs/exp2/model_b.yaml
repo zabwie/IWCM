@@ -1,0 +1,24 @@
+# Experiment 2 — Model B: Hand-coded symbolic corruptions (upper bound)
+experiment_name: "exp2_model_b"
+description: "Upper bound: hand-coded symbolic corruptions with hidden simulator oracle"
+
+env:
+  grid_size: 8
+  max_objects: 5
+
+training:
+  batch_size: 16
+  learning_rate: 0.0001
+  num_epochs: 100
+  horizon: 25
+  seed: 42
+
+encoder:
+  frame_size: 64
+  num_slots: 6
+  slot_dim: 64
+  slot_iters: 3
+
+ac3:
+  use_symbolic_oracle: true
+  # Oracle hidden from model — provides labels only

@@ -1,0 +1,22 @@
+# Experiment 1 — Model A: Baseline next-state predictor
+experiment_name: "exp1_model_a"
+description: "Baseline: simple next-state prediction (recurrent transition)"
+
+env:
+  grid_size: 8
+  max_objects: 5
+
+training:
+  batch_size: 32
+  learning_rate: 0.0001
+  num_epochs: 50
+  horizon: 25
+  seed: 42
+
+iwcm:
+  use_learned_refinement: false
+
+ac3:
+  use_symbolic_oracle: false
+
+# No adversarial training — pure supervised next-state

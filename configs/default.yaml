@@ -1,0 +1,89 @@
+# IWCM Default Configuration
+experiment_name: "default"
+description: "Default IWCM configuration for development"
+
+env:
+  grid_size: 8
+  max_objects: 5
+  num_keys: 1
+  num_doors: 1
+  num_boxes: 2
+  num_occluders: 1
+  max_steps_per_episode: 200
+
+iwcm:
+  latent_dim: 64
+  num_slots: 6
+  hidden_dim: 256
+  num_heads: 4
+  num_layers: 2
+  dropout: 0.1
+  lambda_boundary: 1.0
+  lambda_local: 1.0
+  lambda_invariant: 1.5
+  lambda_effect: 1.0
+  lambda_counterfactual: 0.5
+  solver_steps: 20
+  solver_lr: 0.01
+  solver_momentum: 0.9
+  use_learned_refinement: true
+  accept_temperature: 1.0
+
+ac3:
+  num_mutations_per_sample: 4
+  accept_low: 0.4
+  accept_high: 0.7
+  top_k_hard: 8
+  curriculum_warmup: 1000
+  lambda_invalid: 1.0
+  lambda_accept: 0.5
+  lambda_minimal: 0.3
+  lambda_diversity: 0.2
+  lambda_valid_energy: 1.0
+  lambda_invalid_energy: 1.0
+  lambda_repair: 0.5
+  use_symbolic_oracle: true
+
+tamg:
+  num_operators: 16
+  operator_dim: 32
+  operator_rank: 8
+  num_operator_clusters: 16
+  num_validators: 8
+  disagreement_threshold: 0.3
+  lambda_manifold: 1.0
+  lambda_minimality: 0.3
+  lambda_disagreement: 1.0
+  lambda_diversity: 0.2
+  lambda_artifact: 0.5
+  manifold_epsilon: 0.1
+  decode_threshold: 0.05
+  freeze_validators_during_corruptor_update: true
+
+encoder:
+  cnn_channels: [32, 64, 64, 128]
+  frame_size: 64
+  num_slots: 6
+  slot_dim: 64
+  slot_iters: 3
+  content_dim: 32
+  pose_dim: 16
+  hidden_dim: 16
+
+training:
+  batch_size: 32
+  learning_rate: 0.0001
+  weight_decay: 0.00001
+  num_epochs: 100
+  horizon: 25
+  seed: 42
+  log_every: 10
+  save_every: 1000
+  eval_every: 500
+  checkpoint_dir: "outputs/checkpoints"
+  gradient_clip_norm: 1.0
+  num_workers: 4
+  mixed_precision: true
+
+use_wandb: false
+use_tensorboard: true

@@ -1,0 +1,36 @@
+# Experiment 1 — Model C: IWCM + AC3 (full adversarial)
+experiment_name: "exp1_model_c"
+description: "IWCM with full AC3 adversarial causal corruption curriculum"
+
+env:
+  grid_size: 8
+  max_objects: 5
+
+training:
+  batch_size: 32
+  learning_rate: 0.0001
+  num_epochs: 100
+  horizon: 25
+  seed: 42
+
+iwcm:
+  lambda_boundary: 1.0
+  lambda_local: 1.0
+  lambda_invariant: 1.5
+  lambda_effect: 1.0
+  lambda_counterfactual: 0.5
+  use_learned_refinement: true
+
+ac3:
+  use_symbolic_oracle: true
+  num_mutations_per_sample: 4
+  accept_low: 0.4
+  accept_high: 0.7
+  top_k_hard: 8
+  lambda_invalid: 1.0
+  lambda_accept: 0.5
+  lambda_minimal: 0.3
+  lambda_diversity: 0.2
+  lambda_valid_energy: 1.0
+  lambda_invalid_energy: 1.0
+  lambda_repair: 0.5

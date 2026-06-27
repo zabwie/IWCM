@@ -1,0 +1,689 @@
+\documentclass[12pt]{article}
+
+\usepackage{amsmath, amssymb, amsthm}
+\usepackage{geometry}
+\usepackage{hyperref}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{algorithm}
+\usepackage{algorithmic}
+\usepackage{xcolor}
+\usepackage{natbib}
+
+\geometry{margin=1.2in}
+
+\newtheorem{definition}{Definition}
+\newtheorem{proposition}{Proposition}
+\newtheorem{remark}{Remark}
+\newtheorem{theorem}{Theorem}
+
+\title{%
+  \textbf{World Models as Constraint Solvers: \\
+  Implicit Worldline Constraint Models, \\
+  Adversarial Causal Corruption Curricula, \\
+  and Self-Supervised Causal Law Discovery}
+}
+
+\author{Anonymous}
+\date{}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+Learned world models based on autoregressive rollout suffer from a structural failure: prediction errors compound over time, causing the model to plan inside increasingly fictional futures. We argue this is not a capacity problem but an architectural one. The fundamental error is treating the future as a sequence to be \emph{generated} rather than a set of latent states to be \emph{solved}. We propose three complementary contributions forming a unified framework.
+
+\textbf{(1) Implicit Worldline Constraint Model (IWCM):} A world model whose primary object is not a transition function but a differentiable energy function over entire latent worldlines. Planning becomes joint constraint satisfaction over all future states simultaneously, breaking the autoregressive dependency chain and eliminating structural drift.
+
+\textbf{(2) Adversarial Causal Corruption Curriculum (AC3):} A co-evolutionary training procedure in which a learned corruptor generates minimally edited, causally invalid futures — \emph{near-miss worlds} — that are maximally plausible but violate causal laws. Training on near-miss worlds creates systematic pressure toward learning causal invariants rather than statistical averages.
+
+\textbf{(3) Tangent-Space Adversarial Mutation Grammar (TAMG) with Validator Committee:} A fully self-supervised extension that eliminates dependence on a symbolic simulator oracle. The corruptor learns to move \emph{along} the data manifold but \emph{across} the causal-validity boundary, using learned latent edit operators. A committee of structurally asymmetric weak validators replaces the single oracle; causal invalidity is identified by structured \emph{disagreement} among independent consistency tests rather than by any single arbiter.
+
+Together these contributions define a path from rollout-based world modeling toward self-supervised causal law discovery in continuous latent spaces.
+\end{abstract}
+
+\tableofcontents
+\newpage
+
+% -------------------------------------------------------
+\section{Introduction}
+\label{sec:intro}
+% -------------------------------------------------------
+
+A central goal of model-based reinforcement learning is to learn a \emph{world model}: an internal representation of environment dynamics usable for planning without direct interaction. The dominant paradigm treats the world model as a learned transition function:
+\[
+  f_\theta : \mathcal{Z} \times \mathcal{A} \to \mathcal{Z}, \quad \hat{z}_{t+1} = f_\theta(\hat{z}_t, a_t)
+\]
+where $\mathcal{Z}$ is a latent state space and $\mathcal{A}$ is an action space. Planning proceeds by \emph{rolling forward} this function over horizon $H$, generating an imagined trajectory $\hat{z}_1, \hat{z}_2, \ldots, \hat{z}_H$ \citep{hafner2023dreamerv3}.
+
+This paradigm carries a structural liability: \textbf{autoregressive drift}. Each predicted state $\hat{z}_t$ is fed back as input to produce $\hat{z}_{t+1}$. Prediction errors accumulate multiplicatively. By step $H$, the model is planning over a latent trajectory that may bear little resemblance to any physically realizable future. This is not a fixable engineering problem within the rollout paradigm — it is a structural consequence of the chain dependency itself.
+
+We draw an analogy to a prior architectural shift. Before transformers, the field assumed:
+\begin{quote}
+\textit{Language is sequential, therefore the model must compute sequentially.}
+\end{quote}
+Transformers refuted this: sequential structure in data does not require sequential computation \citep{vaswani2017attention}. We propose an analogous shift:
+\begin{quote}
+\textit{The world evolves over time, therefore the model must simulate time forward.}
+\end{quote}
+This assumption is similarly mistaken. A world model may instead represent \emph{the constraints that make futures valid or invalid} and plan by finding futures that jointly satisfy those constraints — without ever feeding a predicted state back into the model.
+
+A second, deeper problem concerns what is learned. Neural networks trained by gradient descent are pushed toward:
+\[
+  \hat{y} \approx \mathbb{E}[y \mid x]
+\]
+the conditional average, not the underlying causal structure. A world model trained on next-state prediction learns \emph{what usually happens}, not \emph{what must remain true}. These diverge under long-horizon planning, novel configurations, and counterfactual queries. Closing this gap requires training pressure that forces the model toward structural invariants rather than statistical shortcuts.
+
+This paper addresses both problems. We propose IWCM to eliminate structural drift, AC3 to create law-learning pressure, and TAMG with a Validator Committee to extend the full framework to continuous sensory streams without any symbolic simulator backend.
+
+\paragraph{Paper Organization.} Section~\ref{sec:background} reviews related work. Section~\ref{sec:problem} formalizes autoregressive drift. Section~\ref{sec:iwcm} introduces IWCM. Section~\ref{sec:ac3} introduces AC3. Section~\ref{sec:tamg} introduces TAMG and the Validator Committee. Section~\ref{sec:theory} develops theoretical analysis. Section~\ref{sec:experiments} proposes experiments. Section~\ref{sec:discussion} addresses limitations.
+
+% -------------------------------------------------------
+\section{Background and Related Work}
+\label{sec:background}
+% -------------------------------------------------------
+
+\subsection{Model-Based Reinforcement Learning}
+
+Model-based RL learns environment models to reduce sample complexity \citep{sutton1991dyna}. DreamerV3 \citep{hafner2023dreamerv3} trains behavior entirely through imagined latent rollouts. These methods achieve strong benchmark performance but degrade under long-horizon planning due to compounding prediction error.
+
+\subsection{Trajectory-Level World Models}
+
+Several works move beyond one-step prediction. Diffuser \citep{janner2022diffuser} plans by denoising entire trajectories. Trajectory Transformer \citep{janner2021offline} treats state-action sequences as unified prediction problems. Diffusion World Models \citep{ding2024diffusion} generate multi-step futures concurrently. These works reduce some compounding failure modes but remain generative in nature — they produce futures rather than constrain them.
+
+\subsection{Energy-Based Models}
+
+Energy-based models (EBMs) assign scalar scores to configurations rather than generating outputs \citep{lecun2006tutorial}. EBM planners can infer intermediate states between start and goal without explicit generation \citep{du2019implicit}. Our IWCM inherits this energy-based framing but applies it to causal constraint learning over complete worldlines.
+
+\subsection{JEPA and Abstract Prediction}
+
+Joint Embedding Predictive Architectures (JEPA) \citep{lecun2022path} predict in abstract representation space rather than pixel space. V-JEPA \citep{assran2023vjepa} applies this to video. These works reject reconstruction objectives but remain prediction-shaped: they predict the next latent state from the current one. We argue this still embeds a sequential assumption that our constraint formulation escapes.
+
+\subsection{Causal Representation Learning}
+
+A growing literature seeks to learn causal rather than statistical representations \citep{scholkopf2021causal, peters2017elements}. Invariant Risk Minimization \citep{arjovsky2019irm} searches for invariant predictors across environments. Counterfactual augmentation \citep{kaushik2020counterfactual} has improved robustness, though poor counterfactual generators can impose wrong invariances \citep{agarwal2020counterfactual}. Our AC3 framework connects to this line by using adversarially generated causal violations as training signal, with explicit safeguards against corruptor shortcut exploitation.
+
+\subsection{Hard Negative Mining and Contrastive Learning}
+
+Hard negative mining \citep{schroff2015facenet, robinson2020hard} selects maximally informative negatives for contrastive learning. Negatives close to positives in feature space provide stronger signal than random negatives. AC3 extends this to \emph{causal} hard negatives: futures close to valid ones in surface appearance but violating causal structure.
+
+\subsection{Object-Centric Representations}
+
+Slot Attention \citep{locatello2020object} and related methods learn object-centric latent representations without supervision. These architectures provide the natural substrate for our constraint heads and mutation operators. Recent object-centric world model work pushes toward slot-level dynamics and object-token interactions \citep{kipf2022conditional}, which our framework builds upon.
+
+% -------------------------------------------------------
+\section{The Drift Problem}
+\label{sec:problem}
+% -------------------------------------------------------
+
+\subsection{Formal Setup}
+
+Let $z_t \in \mathcal{Z}$ denote a latent state at time $t$, $a_t \in \mathcal{A}$ an action, and $f_\theta$ a learned transition function. A true trajectory is $\tau = (z_0, a_0, z_1, \ldots, z_H)$. A rollout trajectory is $\hat{\tau} = (z_0, a_0, \hat{z}_1, a_1, \hat{z}_2, \ldots, \hat{z}_H)$ where $\hat{z}_{t+1} = f_\theta(\hat{z}_t, a_t)$.
+
+\subsection{Error Accumulation}
+
+Let $\epsilon_t = \hat{z}_t - z_t$ and $J_t = \nabla_z f_\theta(z_t, a_t)$. Then:
+\[
+  \epsilon_{t+1} \approx J_t \epsilon_t + \delta_t
+\]
+where $\delta_t$ is the single-step model error. Unrolling:
+\[
+  \epsilon_H \approx \left(\prod_{t=0}^{H-1} J_t\right)\epsilon_0 + \sum_{t=0}^{H-1}\left(\prod_{s=t+1}^{H-1} J_s\right)\delta_t
+\]
+
+\begin{proposition}[Geometric Drift Growth]
+If $\|J_t\|_2 \geq \rho > 1$ on average, then $\|\epsilon_H\|$ grows at least geometrically with $H$. Even when $\rho < 1$, accumulated model errors $\delta_t$ ensure $\|\epsilon_H\|$ grows at least linearly with $H$ for any nonzero model error.
+\end{proposition}
+
+\begin{remark}
+This is irreducible within the rollout paradigm. Reducing $\delta_t$ (better transition models) slows but does not stop accumulation. The chain structure is the problem.
+\end{remark}
+
+\subsection{Why Hierarchy Does Not Solve This}
+
+Hierarchical planning with subgoals defers the rollout problem to sub-trajectories but does not eliminate it. Each subgoal is itself produced by a rollout, and errors accumulate within each segment. The structural liability persists at every level of the hierarchy.
+
+% -------------------------------------------------------
+\section{Implicit Worldline Constraint Models}
+\label{sec:iwcm}
+% -------------------------------------------------------
+
+\subsection{Core Formulation}
+
+We redefine the world model as a \textbf{constraint energy function}:
+\[
+  E_\theta : \mathcal{Z} \times \mathcal{A}^H \times \mathcal{Z}^H \to \mathbb{R}
+\]
+where $E_\theta(z_0, A, Z)$ assigns a constraint violation score to candidate worldline $Z = (z_1, \ldots, z_H)$ given real initial state $z_0$ and action sequence $A$.
+
+Planning becomes:
+\[
+  (A^*, Z^*) = \arg\min_{A,\, Z}\; E_\theta(z_0, A, Z) + \mathcal{C}_{\text{goal}}(Z)
+\]
+
+No state in $Z$ is produced by feeding a previously predicted state into the model. All future states are simultaneous free variables in a single optimization problem.
+
+\subsection{Constraint Decomposition}
+
+\begin{align}
+  E_\theta(z_0, A, Z) &= \lambda_1\, C_\text{boundary}(z_0, Z, A) \nonumber\\
+  &+ \lambda_2\, C_\text{local}(Z, A) \nonumber\\
+  &+ \lambda_3\, C_\text{invariant}(Z) \nonumber\\
+  &+ \lambda_4\, C_\text{effect}(Z, A) \nonumber\\
+  &+ \lambda_5\, C_\text{counterfactual}(Z, Z', A, A')
+\end{align}
+
+\paragraph{Boundary Constraint.}
+\[
+  C_\text{boundary}(z_0, Z, A) = \sum_{t=1}^{H} d\!\left(z_t,\, \mathcal{R}(z_0, A_{0:t})\right)
+\]
+Every future state is anchored to the real observed $z_0$ via reachability. This prevents late states drifting into unreachable regions.
+
+\paragraph{Local Transition Constraint.}
+\[
+  C_\text{local}(Z, A) = \sum_{t=0}^{H-1} c_\text{loc}(z_t, z_{t+1}, a_t)
+\]
+Adjacent states must be locally plausible. Critically, $z_{t+1}$ is a free variable \emph{scored against} $z_t$, not produced from it.
+
+\paragraph{Global Invariant Constraint.}
+\[
+  C_\text{invariant}(Z) = \sum_k \mathbb{1}[\text{invariant}_k \text{ violated in } Z]
+\]
+Object identity, count conservation, ownership, causal ordering, and containment must persist across the worldline unless a valid causal event permits change.
+
+\paragraph{Action-Effect Locality Constraint.}
+\[
+  C_\text{effect}(Z, A) = \sum_t \sum_{o \notin \text{scope}(a_t)} \Delta(z_t^o, z_{t+1}^o)
+\]
+Actions may only causally affect objects within their reachable scope. Unrelated objects must not change.
+
+\paragraph{Counterfactual Consistency Constraint.}
+For two futures $Z, Z'$ arising from actions $A, A'$ with the same $z_0$:
+\[
+  C_\text{counterfactual}(Z, Z', A, A') = \sum_{o \notin \text{affected}(A, A')} d(z_t^o, z_t^{\prime o})
+\]
+Objects not causally reachable by the action difference must remain identical across the two futures.
+
+\subsection{The Solver}
+
+Initialize a noisy candidate worldline $Z^{(0)} \sim \mathcal{N}(0, I)$. Refine iteratively:
+\[
+  Z^{(k+1)} = Z^{(k)} - \alpha \nabla_Z E_\theta(z_0, A, Z^{(k)})
+\]
+or with a learned parallel refinement operator:
+\[
+  Z^{(k+1)} = \Phi_\theta\!\left(z_0, A, Z^{(k)}, r^{(k)}\right)
+\]
+where $r^{(k)}$ are constraint residuals. This refinement is \textbf{iterative but not autoregressive}: all of $z_1, \ldots, z_H$ are updated jointly at each step. An error at $z_7$ does not corrupt $z_8$; both are pulled toward consistency with $z_0$ and the global invariants throughout.
+
+\subsection{Why Drift Disappears}
+
+In rollout, the dependency graph is a directed chain: $z_0 \to \hat{z}_1 \to \hat{z}_2 \to \cdots$. Errors propagate exclusively forward.
+
+In IWCM, the dependency graph is a constraint hypergraph:
+\begin{itemize}
+  \item $z_0$ connects to all $z_t$ via boundary constraints
+  \item Adjacent pairs $(z_t, z_{t+1})$ share local constraints
+  \item All $z_t$ share global invariant constraints
+  \item Actions constrain specific object slots across time
+  \item The goal constrains the endpoint
+\end{itemize}
+
+\begin{proposition}[Drift Elimination]
+In IWCM, $E_\theta(z_0, A, Z)$ is a direct function of $z_0$ for every $z_t \in Z$. No $z_t$ is computed as a function of any $\hat{z}_{t-1}$. Single-step model errors therefore cannot accumulate through a prediction chain.
+\end{proposition}
+
+% -------------------------------------------------------
+\section{Adversarial Causal Corruption Curriculum}
+\label{sec:ac3}
+% -------------------------------------------------------
+
+\subsection{The Law vs.\ Average Problem}
+
+A neural network minimizing prediction loss converges toward $\hat{y} \approx \mathbb{E}[y \mid x]$. This is the conditional average, not the causal structure. We formalize the distinction:
+
+\begin{definition}[Statistical Regularity]
+A pattern $p(y \mid x)$ holding in the training distribution but potentially failing under distributional shift or interventions.
+\end{definition}
+
+\begin{definition}[Causal Invariant]
+A constraint $C(x, y)$ holding under all interventions on the causal graph consistent with the data-generating process.
+\end{definition}
+
+For world models, statistical regularity gives: \emph{what usually happens}. Causal invariant gives: \emph{what must remain true}. These diverge precisely where long-horizon planning fails.
+
+\subsection{Near-Miss Worlds}
+
+\begin{definition}[Near-Miss World]
+A trajectory $\tau'$ is a near-miss world relative to valid trajectory $\tau$ if:
+\begin{enumerate}
+  \item $d_\text{surface}(\tau', \tau)$ is small
+  \item $\tau'$ violates at least one causal constraint $C_k$
+  \item $\tau'$ is accepted by a model trained only on statistical regularities
+\end{enumerate}
+\end{definition}
+
+The third condition is crucial: a near-miss world exploits a known gap in the model's causal understanding. Training on near-miss worlds creates pressure to close that gap.
+
+\subsection{The Three-System Loop}
+
+AC3 involves three interacting systems:
+
+\paragraph{World Model $W_\theta$.} Scores and repairs candidate worldlines via IWCM.
+
+\paragraph{Corruptor $C_\phi$.} Generates near-miss worlds via the causal mutation grammar.
+
+\paragraph{Constraint Oracle $\mathcal{O}$.} Determines whether a trajectory violates a causal constraint. In symbolic environments, $\mathcal{O}$ is the simulator backend. In continuous environments, $\mathcal{O}$ is replaced by the Validator Committee (Section~\ref{sec:tamg}).
+
+\begin{algorithm}
+\caption{AC3 Training Loop}
+\begin{algorithmic}[1]
+\REQUIRE Trajectories $\mathcal{D}$, world model $W_\theta$, corruptor $C_\phi$, oracle $\mathcal{O}$
+\FOR{each batch $\{\tau\} \sim \mathcal{D}$}
+  \STATE $\mathcal{T}' \leftarrow C_\phi.\text{mutate}(\tau, \mathcal{G})$
+  \STATE $\mathcal{T}'_\text{inv} \leftarrow \{\tau' : \mathcal{O}(\tau') = \text{invalid}\}$
+  \STATE $\mathcal{T}'_\text{hard} \leftarrow \text{top-}k(\mathcal{T}'_\text{inv},\; \text{key} = \mathcal{H})$
+  \STATE Train $W_\theta$: $\tau \to$ low energy; $\mathcal{T}'_\text{hard} \to$ high energy; repair $\tau' \to \tau$
+  \STATE Train $C_\phi$: reward invalidity + $W_\theta$ acceptance + minimal edit + diversity
+\ENDFOR
+\end{algorithmic}
+\end{algorithm}
+
+\subsection{Hardness Score}
+
+\[
+  \mathcal{H}(\tau') = W_\theta^\text{accept}(\tau') + d_\text{surface}(\tau, \tau') - d_\text{edit}(\tau, \tau') + \mathcal{O}^\text{violation}(\tau')
+\]
+
+The curriculum targets the model's uncertainty boundary: corruptions where $W_\theta^\text{accept} \in [0.4, 0.7]$ provide maximal learning signal.
+
+\subsection{Symbolic Mutation Grammar $\mathcal{G}$}
+
+The following grammar applies in symbolic or simulator-backed environments:
+
+\paragraph{Identity Corruptions.} Swap object identities while preserving trajectories. Tests object permanence and tracking.
+
+\paragraph{Conservation Corruptions.} Duplicate, delete, or transform objects without valid causal events. Tests count, mass, and inventory conservation.
+
+\paragraph{Action-Locality Corruptions.} Make an action affect objects outside its causal scope. Tests causal locality.
+
+\paragraph{Splice Corruptions.} Join two valid trajectory segments into a globally invalid sequence. Tests long-range consistency against models that check only local plausibility.
+
+\paragraph{Counterfactual Mismatch Corruptions.} Given two futures differing only in action choice, make unaffected objects change or affected objects fail to change.
+
+\paragraph{Temporal Order Corruptions.} Reverse cause and effect across the worldline.
+
+\paragraph{Occlusion Corruptions.} Allow object identity, velocity, or ownership to change silently during occlusion.
+
+\subsection{Minimal Causal Counterexample Search}
+
+The strongest form of AC3 is not random corruption but targeted search:
+\[
+  \delta^* = \arg\min_\delta\; d(\tau,\, \tau + \delta) \quad \text{s.t.}\quad \mathcal{O}(\tau+\delta)=\text{invalid},\quad W_\theta^\text{accept}(\tau+\delta) > \gamma
+\]
+This finds the smallest edit making a trajectory invalid while remaining accepted by the current model — locating the model's exact causal boundary, the most informative possible training point.
+
+% -------------------------------------------------------
+\section{TAMG and the Validator Committee}
+\label{sec:tamg}
+% -------------------------------------------------------
+
+\subsection{The Oracle Catch-22}
+
+The symbolic AC3 framework assumes a reliable constraint oracle $\mathcal{O}$. In continuous observation spaces (raw video, robotics), no such oracle is available. Training a single neural oracle alongside the world model creates a circular dependency: the oracle learns the same statistical shortcuts and blind spots as the world model, allowing the corruptor to game the system without discovering true invariants.
+
+The solution is not to replace the symbolic oracle with a single learned oracle. It is to replace it with a committee of structurally asymmetric weak validators whose \emph{disagreement} identifies the causal-validity boundary.
+
+\subsection{Manifold-Preserving Causal Corruption}
+
+The corruptor must not generate arbitrary latent noise — that destroys the near-miss property. Instead, the corruptor must move \emph{along} the data manifold while crossing the causal-validity boundary.
+
+\begin{definition}[Manifold-Preserving Causal Corruption]
+A corruption $\tau'$ is manifold-preserving if $d_\text{latent}(\tau', \mathcal{M}) < \epsilon$ where $\mathcal{M}$ is the learned manifold of valid trajectories, while $\mathcal{O}_\text{committee}(\tau') = \text{invalid}$.
+\end{definition}
+
+The corruptor is trained to produce corruptions that look realistic in short windows but contain global structural violations — topological anomalies on the causal-validity boundary.
+
+\subsection{Tangent-Space Adversarial Mutation Grammar (TAMG)}
+
+For trajectory latent $Z \in \mathbb{R}^{H \times N \times d}$, the corruptor produces:
+\[
+  Z' = Z + M \odot \Delta
+\]
+where $M = M_\text{time} \otimes M_\text{slot} \otimes M_\text{feat}$ is a sparse mask over time, slots, and feature subspaces, and $\Delta \in \mathbb{R}^{H \times N \times d}$ is a learned edit vector.
+
+Crucially, $\Delta$ is not arbitrary noise. It is drawn from the learned valid tangent distribution:
+\[
+  p_\text{valid}(\Delta z \mid z_t, a_t) \approx \text{distribution of real } (z_{t+1} - z_t)
+\]
+The corruptor applies real-looking local changes in the wrong context, creating futures that are locally plausible but globally causally invalid.
+
+\subsection{Continuous Mutation Families}
+
+\paragraph{Identity-Continuity Mutations.}
+Swap slot content embeddings during ambiguous intervals (e.g., occlusion) while preserving smooth pose trajectories:
+\[
+  z'_{t,i} = \text{content}(z_{t,j}) + \text{pose}(z_{t,i})
+\]
+Creates futures where an object moves smoothly but changes its underlying identity. Invalidity detected by: cycle tracking failure, reappearance embedding mismatch, slot assignment instability.
+
+\paragraph{Locality Mutations.}
+Apply action-correlated deltas to slots with low learned causal attention to the acting slot:
+\[
+  \Delta z_{t,j} = f_\text{action}(a_t), \quad j \notin \text{causal-neighborhood}(\text{actor})
+\]
+Invalidity detected by: change in slot despite low interaction attention, counterfactual pair showing slot should be invariant.
+
+\paragraph{Invariant-Subspace Mutations.}
+Decompose each slot as $z = [c, p, h]$ (content, pose, hidden state). Perturb $c$ without a valid causal event while keeping $p$ stable:
+\[
+  z'_{t,i}.\text{content} = z_{t,i}.\text{content} + \delta_c, \quad \|\delta_c\| \ll \|z_{t,i}.\text{content}\|
+\]
+Invalidity detected by: identity contrastive loss detecting same-object change, encoder-decoder cycle inconsistency.
+
+\paragraph{Temporal Splice Mutations.}
+Find latent bridge point $z_t \approx y_s$ between two valid trajectories $\tau_A, \tau_B$:
+\[
+  \tau' = z_0, \ldots, z_t,\; y_{s+1}, \ldots, y_H
+\]
+Every segment is real data. The combined worldline is globally inconsistent. Invalidity detected by: hidden variable disagreement across the splice, action-conditioned reachability drop, forward-backward encoder disagreement.
+
+\paragraph{Cycle-Breaking Mutations.}
+Train forward map $F(z_t, a_t) \to z_{t+k}$ and backward map $B(z_{t+k}, a_t) \to z_t$. Corruptor searches for edits maximizing:
+\[
+  F_\text{accept}(\tau') + d_\text{surface}(\tau, \tau') - B_\text{error}(\tau')
+\]
+Catches futures that appear plausible forward but are impossible when reversed — revealing temporal asymmetries in causal structure.
+
+\subsection{The Learned Operator Basis}
+
+Rather than an unconstrained corruptor network, we parameterize the corruptor as a sum over a learned basis of causal mutation operators:
+\[
+  Z' = Z + \sum_k \alpha_k O_k(Z)
+\]
+Each operator $O_k$ is a low-rank adapter over slot trajectories with soft time, slot, and feature masks. The basis is learned from real temporal transformations by clustering natural latent differences:
+\[
+  v_{i,t} = z_{i,t+1} - z_{i,t}
+\]
+into modes (e.g., motion, occlusion transition, contact, attachment, release) without naming them. The corruptor then recombines these modes in illegal contexts — applying a contact-only transformation when no contact occurs, or an occlusion identity-transition when the object is visible.
+
+\subsection{The Validator Committee}
+
+Replace $\mathcal{O}$ with a committee of $K$ weak, structurally asymmetric validators $\{V_1, \ldots, V_K\}$:
+
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\toprule
+Validator & Signal \\
+\midrule
+$V_1$ & Local transition likelihood \\
+$V_2$ & Forward-backward cycle consistency \\
+$V_3$ & Slot correspondence consistency \\
+$V_4$ & Invariant-subspace stability \\
+$V_5$ & Action-locality consistency \\
+$V_6$ & Temporal reachability score \\
+$V_7$ & Multi-view / augmentation consistency \\
+$V_8$ & Repair difficulty under $W_\theta$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Validators are enforced to be structurally diverse: different encoders, different time horizons, different augmentations, different prediction directions. This prevents validator collusion — the failure mode in which validators share the same blind spots.
+
+\begin{definition}[Validator Disagreement Score]
+\[
+  D(\tau') = \text{Var}_{k}\!\left[V_k(\tau')\right] + \sum_{k} \mathbb{1}[V_k(\tau') \text{ differs from } V_1(\tau') \text{ by } > \gamma_k]
+\]
+\end{definition}
+
+A trajectory is identified as a candidate near-miss world when:
+\begin{enumerate}
+  \item $W_\theta$ assigns it low energy (accepted by the world model)
+  \item Local validators ($V_1$, $V_7$) accept it (surface plausibility)
+  \item At least one global validator ($V_2$, $V_3$, $V_4$, $V_6$) rejects it (causal invalidity)
+\end{enumerate}
+
+High variance in committee agreement defines the causal-validity boundary in a fully self-supervised manner.
+
+\subsection{Self-Supervised AC3 Loop}
+
+\begin{algorithm}
+\caption{Self-Supervised AC3 with TAMG and Validator Committee}
+\begin{algorithmic}[1]
+\REQUIRE Video trajectories $\mathcal{D}$, world model $W_\theta$, corruptor $C_\phi$, validators $\{V_k\}$
+\FOR{each batch $\{\tau\} \sim \mathcal{D}$}
+  \STATE $Z \leftarrow \text{Encoder}(\tau)$ \hfill \COMMENT{Encode to object-centric latents}
+  \STATE $Z' \leftarrow Z + \sum_k \alpha_k O_k(Z)$ \hfill \COMMENT{Apply TAMG operators}
+  \STATE Keep $Z'$ if: close to $Z$, decodes cleanly, $D(Z') > \gamma$, $W_\theta.\text{accept}(Z')$ high
+  \STATE Train $W_\theta$: valid $Z \to$ low energy; hard $Z' \to$ high energy; repair $Z' \to Z$
+  \STATE Train $C_\phi$: reward $W_\theta$ acceptance + manifold plausibility + minimality + $D(Z')$ + diversity
+\ENDFOR
+\end{algorithmic}
+\end{algorithm}
+
+The corruptor objective is:
+\[
+  \mathcal{R}(C_\phi) = W_\theta^\text{accept}(Z') + \lambda_1 \cdot \text{Manifold}(Z') + \lambda_2 \cdot \text{Minimality}(Z, Z') + \lambda_3 \cdot D(Z') + \lambda_4 \cdot \text{Diversity}(Z') - \lambda_5 \cdot \text{Artifact}(Z')
+\]
+
+% -------------------------------------------------------
+\section{Theoretical Analysis}
+\label{sec:theory}
+% -------------------------------------------------------
+
+\subsection{IWCM as Implicit Prior}
+
+The energy function implicitly defines a prior over futures:
+\[
+  p_\theta(Z \mid z_0, A) \propto \exp(-E_\theta(z_0, A, Z))
+\]
+Planning is MAP inference:
+\[
+  Z^* = \arg\max_Z\; p_\theta(Z \mid z_0, A) \cdot p_\text{goal}(Z)
+\]
+Unlike rollout models, this prior assigns probability to complete futures simultaneously, not to sequences generated one step at a time.
+
+\subsection{Relation to Constraint Satisfaction}
+
+The IWCM optimization is a differentiable soft constraint satisfaction problem. This connects to classical AI planning (STRIPS, PDDL) but with learned continuous constraints rather than hand-specified symbolic rules, and over continuous latent states rather than symbolic state descriptions. It unifies the expressiveness of neural world models with the structural reasoning of classical planners.
+
+\subsection{When Laws Emerge}
+
+\begin{theorem}[Conditions for Law Discovery]
+A neural constraint system learns a causal invariant $C_k$ rather than a statistical regularity when:
+\begin{enumerate}
+  \item The training set contains near-miss worlds that violate $C_k$ while matching the training distribution in surface statistics
+  \item Evaluation tests include out-of-distribution instances of $C_k$ violation with different surface forms
+  \item The model architecture has sufficient inductive bias to represent $C_k$ at lower complexity than a spurious correlate
+\end{enumerate}
+AC3/TAMG is designed to satisfy conditions 1 and 2. The constraint head decomposition of IWCM addresses condition 3.
+\end{theorem}
+
+\subsection{The Definitive Generalization Test}
+
+\begin{definition}[Cross-Surface Law Generalization]
+A model has learned causal invariant $C_k$ rather than surface pattern $P_1$ if it successfully rejects and repairs novel violations of $C_k$ expressed as surface pattern $P_2 \neq P_1$.
+\end{definition}
+
+Example: trained on key duplication (conservation violation, surface pattern $P_1$). Tested on box duplication or door-state duplication (conservation violation, surface pattern $P_2$). Generalization implies learned conservation; failure implies learned key-duplication detection.
+
+\subsection{Validator Collusion and Diversity Requirements}
+
+\begin{proposition}[Collusion Failure Mode]
+If validators $\{V_k\}$ share an encoder or optimization objective, the corruptor may exploit their shared blind spots, producing trajectories that cause false disagreement without genuine causal violation.
+\end{proposition}
+
+Enforced diversity requirements:
+\begin{itemize}
+  \item Different encoder architectures (CNN, Transformer, recurrent)
+  \item Different time horizons (local: $\Delta t = 1$; global: $\Delta t = H$)
+  \item Different augmentation strategies for invariance learning
+  \item Different prediction directions (forward, backward, masked)
+  \item Different slot-matching objectives
+\end{itemize}
+
+A corruption is more trustworthy when it causes \emph{structured} disagreement — local validators accept, global validators reject — than when a single validator fires anomalously.
+
+% -------------------------------------------------------
+\section{Proposed Experiments}
+\label{sec:experiments}
+% -------------------------------------------------------
+
+\subsection{Experiment 1: Symbolic Environment (IWCM + AC3)}
+
+\paragraph{Environment.} Grid world with 2--5 objects, keys, doors, boxes, occluders, inventory, push/carry/drop/open actions, full symbolic state accessible to oracle.
+
+\paragraph{Models.}
+\begin{table}[h]
+\centering
+\begin{tabular}{@{}lll@{}}
+\toprule
+Model & Objective & Architecture \\
+\midrule
+A & Next-state prediction & Recurrent transition \\
+B & Repair + random corruptions & IWCM \\
+C & Repair + AC3 (symbolic oracle) & IWCM + corruptor \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The critical comparison is B vs.\ C, isolating adversarial causal corruption from the repair objective alone.
+
+\subsection{Experiment 2: Video Environment (TAMG + Validator Committee)}
+
+\paragraph{Environment.} Rendered video from the same grid world. Symbolic state hidden from all models. Only video frames provided.
+
+\paragraph{Models.}
+\begin{table}[h]
+\centering
+\begin{tabular}{@{}lll@{}}
+\toprule
+Model & Corruption Source & Oracle \\
+\midrule
+A & Random latent noise & None \\
+B & Hand-coded symbolic corruptions & Simulator (hidden from model) \\
+C & TAMG latent operators & Validator committee \\
+D & TAMG + validator disagreement & Validator committee \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Target result: D approaches B without symbolic access and generalizes better than A and C to held-out violation families.
+
+\subsection{Evaluation Metrics}
+
+\begin{enumerate}
+  \item Constraint violation rate over $H \in \{10, 25, 50, 100\}$
+  \item Object identity preservation across full trajectories
+  \item Conservation violation detection on held-out scenarios
+  \item Valid/invalid future classification accuracy
+  \item Repair accuracy on corrupted worldlines
+  \item Counterfactual locality accuracy (what-should-change identification)
+  \item Splice detection across long delays ($\Delta t > 20$)
+  \item Planning success rate on long-horizon key-door tasks
+  \item \textbf{Cross-surface law generalization} (primary metric)
+\end{enumerate}
+
+Metric 9 is the definitive law-vs.-average diagnostic.
+
+\subsection{Hypothesized Results}
+
+Model A achieves low one-step error but collapses at $H = 50$. Model B (repair + random) produces temporally coherent but causally inconsistent long-horizon futures. Model C (AC3 / TAMG) maintains low constraint violation rate and, critically, generalizes to held-out constraint violations not seen during training. The killer result: Model C rejects causally invalid plans that A and B accept, specifically for held-out constraint categories expressed through novel surface patterns.
+
+% -------------------------------------------------------
+\section{Discussion}
+\label{sec:discussion}
+% -------------------------------------------------------
+
+\subsection{Limitations}
+
+\paragraph{Solver Convergence.}
+Joint iterative refinement of the worldline slab requires a well-behaved energy landscape. Non-convex landscapes may trap the solver in locally consistent but globally invalid worldlines. Diffusion-style initialization or multi-start strategies may be required.
+
+\paragraph{Validator Collusion.}
+Despite enforced architectural diversity, validators sharing a pretraining backbone may develop correlated blind spots. The diversity requirements in Section~\ref{sec:theory} are necessary but not proven sufficient.
+
+\paragraph{Operator Basis Collapse.}
+The learned mutation operator basis may collapse to a small set of reliable exploits. Explicit diversity pressure in the corruptor objective partially addresses this; formal guarantees remain open.
+
+\paragraph{Scaling Object-Centric Representations.}
+Slot-based architectures struggle in cluttered or highly dynamic environments. If object tokenization fails under occlusion, global invariant constraint heads receive corrupted gradients. Object-centric representation learning is a prerequisite, not a solved problem.
+
+\paragraph{Inference Latency.}
+Joint iterative refinement over a worldline slab is more expensive per planning query than single-pass rollout. Real-time applications in robotics will require efficient solver approximations.
+
+\subsection{Relation to Human Physical Reasoning}
+
+Humans do not appear to simulate physics frame-by-frame. Knowing a cup is near the table edge does not require mentally rendering its fall. The relevant structure is compressed: support implies stability; no support implies fall; fragility implies breakage on impact. This is constraint knowledge, not rollout simulation.
+
+IWCM is not a claim about human cognition but is informed by the observation that compact causal abstractions — not high-fidelity forward simulation — appear sufficient for rapid, accurate physical reasoning.
+
+\subsection{Broader Implications}
+
+Long-horizon planning failure is a central bottleneck for autonomous agents, robotics, and scientific planning. A world model that learns causal invariants rather than statistical regularities would generalize to novel object configurations, correctly handle hidden state under occlusion, and reject physically impossible plans without simulation. IWCM, AC3, and TAMG together constitute a candidate path toward that capability.
+
+% -------------------------------------------------------
+\section{Conclusion}
+\label{sec:conclusion}
+% -------------------------------------------------------
+
+We have proposed a unified framework addressing two structural problems in learned world modeling: autoregressive drift and statistical shortcut learning.
+
+\textbf{IWCM} eliminates drift by replacing rollout with joint constraint satisfaction over complete latent worldlines. No predicted state is ever fed back into the model.
+
+\textbf{AC3} creates law-learning pressure by training on near-miss worlds — minimally edited, causally invalid futures that exploit the current model's known gaps.
+
+\textbf{TAMG + Validator Committee} extends the full framework to continuous observation spaces without any symbolic oracle, by learning manifold-preserving causal mutations and identifying the causal-validity boundary through structured validator disagreement.
+
+The central thesis:
+
+\begin{quote}
+\textit{To learn laws, a world model needs near-miss worlds: futures that look possible but are not. The corruptor learns to move along the data manifold but across the causal-validity boundary.}
+\end{quote}
+
+Together these contributions define a framework for \emph{self-supervised causal law discovery} in world models — a step toward agents that know not what usually happens, but what must remain true.
+
+% -------------------------------------------------------
+\bibliographystyle{plainnat}
+\bibliography{references}
+
+% -------------------------------------------------------
+\appendix
+
+\section{Constraint Head Parameterization}
+\label{app:energy}
+
+Each constraint head $C_k$ is a transformer attending over the worldline slab $Z \in \mathbb{R}^{H \times N \times d}$:
+\[
+  E_\theta(z_0, A, Z) = \sum_k \lambda_k \cdot \text{MLP}_k\!\left(\text{Transformer}_k(z_0, A, Z)\right)
+\]
+Cross-attention from $z_0$ to all $z_t$ implements the boundary constraint. Self-attention between adjacent pairs implements local transition scoring. Full sequence self-attention implements global invariant scoring.
+
+\section{TAMG Operator Basis Training}
+\label{app:tamg}
+
+The operator basis $\{O_k\}$ is initialized by clustering real latent difference vectors:
+\[
+  \mathcal{V} = \{z_{i,t+1} - z_{i,t} : i \in \mathcal{D}, t \in [0, H-1]\}
+\]
+using $k$-means or a VQ-VAE codebook. Each cluster centroid initializes one operator $O_k$. Operators are then fine-tuned adversarially: maximize $W_\theta^\text{accept}(Z + \alpha_k O_k(Z))$ subject to manifold plausibility and validator disagreement constraints.
+
+\section{Validator Architecture Details}
+\label{app:validators}
+
+To enforce information asymmetry:
+\begin{itemize}
+  \item $V_1$ (local): 2-layer MLP on adjacent slot pairs; horizon $\Delta t = 1$
+  \item $V_2$ (cycle): bidirectional GRU; trained on forward-backward reconstruction
+  \item $V_3$ (correspondence): contrastive slot-matching loss; horizon $\Delta t = H/2$
+  \item $V_4$ (invariant): slow-feature analysis on content subspace; no action conditioning
+  \item $V_5$ (locality): causal attention estimator; action-conditioned
+  \item $V_6$ (reachability): learned reachability classifier from $z_0$ to $z_t$
+  \item $V_7$ (augmentation): consistency under spatial/temporal augmentations
+  \item $V_8$ (repair): repair difficulty measured by $W_\theta$ refinement steps to convergence
+\end{itemize}
+
+No two validators share an encoder. Validators are trained with frozen weights during corruptor updates to prevent co-adaptation.
+
+\end{document}

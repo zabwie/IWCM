@@ -1,0 +1,32 @@
+# Experiment 1 — Model B: IWCM + random corruptions
+experiment_name: "exp1_model_b"
+description: "IWCM trained with repair objective and random corruptions (no adversary)"
+
+env:
+  grid_size: 8
+  max_objects: 5
+
+training:
+  batch_size: 32
+  learning_rate: 0.0001
+  num_epochs: 100
+  horizon: 25
+  seed: 42
+
+iwcm:
+  lambda_boundary: 1.0
+  lambda_local: 1.0
+  lambda_invariant: 1.5
+  lambda_effect: 1.0
+  lambda_counterfactual: 0.5
+  use_learned_refinement: true
+
+ac3:
+  use_symbolic_oracle: true
+  lambda_valid_energy: 1.0
+  lambda_repair: 0.5
+  # Random corruptions only — no adversary training
+  lambda_invalid: 0.0
+  lambda_accept: 0.0
+  lambda_minimal: 0.0
+  lambda_diversity: 0.0

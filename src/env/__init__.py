@@ -1,0 +1,41 @@
+"""Grid world environment for the IWCM paper."""
+
+from .grid_world import (
+    GridWorld,
+    OBJECT_TYPES,
+    MOVE_UP,
+    MOVE_DOWN,
+    MOVE_LEFT,
+    MOVE_RIGHT,
+    PICKUP,
+    DROP,
+    PUSH_UP,
+    PUSH_DOWN,
+    PUSH_LEFT,
+    PUSH_RIGHT,
+    OPEN,
+    N_ACTIONS,
+    ACTION_NAMES,
+    DIRECTION_DELTAS,
+    LAYOUT_PRESETS,
+)
+
+__all__ = [
+    "GridWorld",
+    "OBJECT_TYPES",
+    "MOVE_UP",
+    "MOVE_DOWN",
+    "MOVE_LEFT",
+    "MOVE_RIGHT",
+    "PICKUP",
+    "DROP",
+    "PUSH_UP",
+    "PUSH_DOWN",
+    "PUSH_LEFT",
+    "PUSH_RIGHT",
+    "OPEN",
+    "N_ACTIONS",
+    "ACTION_NAMES",
+    "DIRECTION_DELTAS",
+    "LAYOUT_PRESETS",
+]

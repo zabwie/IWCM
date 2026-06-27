@@ -59,9 +59,10 @@ class VideoEncoder(BaseModel):
         self.cnn_output_dim = cnn_channels[-1]
         self.feature_size = curr_size  # spatial grid size after CNN
 
-        # Positional encoding
+        # Positional encoding — squeezed to 3D (1, N_patches, C)
+        n_patches = self.feature_size * self.feature_size
         self.pos_embed = nn.Parameter(
-            torch.randn(1, 1, self.feature_size * self.feature_size, self.cnn_output_dim) * 0.02
+            torch.randn(1, n_patches, self.cnn_output_dim) * 0.02
         )
 
         # Slot attention

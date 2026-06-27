@@ -7,13 +7,43 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from src.utils.seed import set_seed
 from src.iwcm.model import IWCM
 from src.metrics.evaluation import metric_cross_surface_law_generalization, metric_valid_invalid_classification
+from src.env.scenarios import Scenario, PREDEFINED_SCENARIOS
+from src.env.data import encode_state, encode_action
+from src.env.grid_world import GridWorld
+from copy import deepcopy
 
 set_seed(42)
 device = "cuda" if torch.cuda.is_available() else "cpu"
 GRID, D_STATE, D_ACTION, H = 8, 8*8*4, 11, 25
 print(f"Device: {device}")
 
-# Load data
+# Generate valid trajectories from ALL scenarios (not just multi_object)
+print("Generating diverse valid trajectories...")
+rng = np.random.RandomState(42)
+all_valid = []
+for scenario_name in PREDEFINED_SCENARIOS:
+    scenario = Scenario.from_preset(scenario_name, 8)
+    for _ in range(80):
+        env = GridWorld(grid_size=8, objects_config=scenario.to_env_config(), seed=int(rng.randint(0, 2**31)))
+        env.reset()
+        states, actions = [], []
+        state = env.get_state()
+        states.append(deepcopy(state))
+        for t in range(H * 3):
+            valid_acts = env.get_valid_actions()
+            if not valid_acts: break
+            a = int(rng.choice(valid_acts))
+            state, _, done, _ = env.step(a)
+            states.append(deepcopy(state)); actions.append(a)
+            if done: break
+        if len(states) >= H + 1 and len(actions) >= H:
+            z0 = encode_state(states[0], 8)
+            A = np.array([encode_action(a) for a in actions[:H]])
+            Z = np.array([encode_state(s, 8) for s in states[1:H+1]])
+            all_valid.append((z0, A, Z))
+print(f"Generated {len(all_valid)} valid trajectories from {len(PREDEFINED_SCENARIOS)} scenarios")
+
+# Load corruption data
 with open("data/corruption_train.pkl", "rb") as f:
     cdata = pickle.load(f)
 with open("data/cross_surface.pkl", "rb") as f:
@@ -23,7 +53,7 @@ def np_to_torch(trajs):
     return [(torch.from_numpy(z0).reshape(-1), torch.from_numpy(A),
              torch.from_numpy(Z).reshape(Z.shape[0], -1)) for z0, A, Z in trajs]
 
-valid = np_to_torch(cdata["valid"])
+valid = np_to_torch(all_valid)
 corruptions = {}
 all_corr = []
 for law in ["conservation", "identity", "locality", "temporal"]:

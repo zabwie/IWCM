@@ -264,7 +264,7 @@ def generate_locality_pairs(num, horizon, seed):
 
 
 def generate_temporal_pairs(num, horizon, seed):
-    """Train: door opens before key pickup. Test: swap two consecutive states."""
+    """Train: reverse trajectory (strong temporal violation). Test: swap two distant states."""
     scenario = Scenario.from_preset("key_door_simple", 8)
     rng = np.random.RandomState(seed)
     train_pairs, test_pairs = [], []
@@ -285,30 +285,24 @@ def generate_temporal_pairs(num, horizon, seed):
             if done: break
         if len(states) < horizon + 1: continue
 
-        doors = [oid for oid in states[0].get("objects", {}).keys()
-                if states[0]["objects"][oid].get("type") == "door"]
+        # Train: reverse the state sequence (cause happens after effect)
+        ts = deepcopy(states)
+        ts[1:horizon+1] = list(reversed(ts[1:horizon+1]))
+        act_rev = list(reversed(actions[:horizon]))
+        z0, A = encode_state(ts[0], 8), np.array([encode_action(a) for a in act_rev])
+        Z = np.array([encode_state(s, 8) for s in ts[1:horizon+1]])
+        train_pairs.append((z0, A, Z))
 
-        # Train: door always open (violates temporal order)
-        if doors:
-            d = doors[0]
-            ts = deepcopy(states)
-            for t in range(len(ts)):
-                ts[t]["door_states"] = ts[t].get("door_states", {})
-                for door_id in ts[t]["door_states"]:
-                    ts[t]["door_states"][door_id] = True
-            z0, A = encode_state(ts[0], 8), np.array([encode_action(a) for a in actions[:horizon]])
-            Z = np.array([encode_state(s, 8) for s in ts[1:horizon+1]])
-            train_pairs.append((z0, A, Z))
-
-        # Test: swap two states
+        # Test: swap two non-adjacent states (subtler but still temporal)
         ts2 = deepcopy(states)
-        if len(ts2) >= 4:
-            t_mid = len(ts2)//2
-            ts2[t_mid], ts2[t_mid+1] = ts2[t_mid+1], ts2[t_mid]
-            actions2 = list(actions)
-            if t_mid < len(actions2)-1:
-                actions2[t_mid], actions2[t_mid+1] = actions2[t_mid+1], actions2[t_mid]
-            z0_t, A_t = encode_state(ts2[0], 8), np.array([encode_action(a) for a in actions2[:horizon]])
+        if len(ts2) >= horizon:
+            t1 = rng.randint(1, horizon//3)
+            t2 = rng.randint(2*horizon//3, horizon)
+            ts2[t1], ts2[t2] = ts2[t2], ts2[t1]
+            acts2 = list(actions)
+            if t1 < len(acts2) and t2 < len(acts2):
+                acts2[t1], acts2[t2] = acts2[t2], acts2[t1]
+            z0_t, A_t = encode_state(ts2[0], 8), np.array([encode_action(a) for a in acts2[:horizon]])
             Z_t = np.array([encode_state(s, 8) for s in ts2[1:horizon+1]])
             test_pairs.append((z0_t, A_t, Z_t))
 

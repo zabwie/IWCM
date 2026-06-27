@@ -30,15 +30,14 @@ class VideoDecoder(BaseModel):
         slot_dim: int = 64,
         frame_size: int = 64,
         out_channels: int = 3,
-        cnn_channels: tuple = (128, 64, 64, 32),
+        cnn_channels: tuple = (128, 64, 64, 32, 16),
     ):
         super().__init__()
         self.slot_dim = slot_dim
         self.frame_size = frame_size
         self.out_channels = out_channels
 
-        # Determine initial feature map size
-        self.init_size = frame_size // (2 ** len(cnn_channels))
+        self.init_size = frame_size // (2 ** (len(cnn_channels) - 1))
 
         # Broadcast MLP: slot → initial feature map
         broadcast_dim = cnn_channels[0] * self.init_size * self.init_size

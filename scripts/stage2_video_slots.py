@@ -8,6 +8,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from src.utils.seed import set_seed
 from src.encoder.oracle_slot_encoder import (encode_oracle_trajectory, build_door_key_map, ORACLE_SLOT_DIM, MAX_OBJECTS)
 from src.encoder.video_encoder import VideoEncoder
+from src.encoder.decoder import VideoDecoder
 from src.iwcm.fused_energy import FusedIWCMEnergy
 from src.env.grid_world import GridWorld
 from src.env.renderer import GridWorldRenderer
@@ -130,8 +131,8 @@ def train_oracle(train_data):
         loss.backward(); torch.nn.utils.clip_grad_norm_(m.parameters(),1.0); opt.step()
     m.eval(); return m
 
-def train_video(train_data):
-    enc=VideoEncoder(frame_size=FRAME_SIZE,in_channels=3,num_slots=MAX_OBJECTS,slot_dim=SLOT_DIM).to(DEVICE)
+def train_video(train_data, encoder=None):
+    enc = encoder if encoder is not None else VideoEncoder(frame_size=FRAME_SIZE,in_channels=3,num_slots=MAX_OBJECTS,slot_dim=SLOT_DIM).to(DEVICE)
     iw=FusedIWCMEnergy(d_slot=SLOT_DIM,d_action=11,hidden=128,num_slots=MAX_OBJECTS).to(DEVICE)
     opt=torch.optim.Adam(list(enc.parameters())+list(iw.parameters()),lr=LR)
     n=min(len(train_data["valid"]),len(train_data["corrupt"]))
@@ -155,6 +156,26 @@ def train_video(train_data):
         torch.nn.utils.clip_grad_norm_(list(enc.parameters())+list(iw.parameters()),1.0); opt.step()
     enc.eval(); iw.eval(); return enc,iw
 
+def pretrain_encoder(train_data, epochs=50):
+    """Pretrain encoder+decoder on frame reconstruction before IWCM training."""
+    enc=VideoEncoder(frame_size=FRAME_SIZE,in_channels=3,num_slots=MAX_OBJECTS,slot_dim=SLOT_DIM).to(DEVICE)
+    dec=VideoDecoder(slot_dim=SLOT_DIM,frame_size=FRAME_SIZE,out_channels=3).to(DEVICE)
+    opt=torch.optim.Adam(list(enc.parameters())+list(dec.parameters()),lr=LR)
+    n=min(len(train_data["valid"]),32)
+    for ep in range(epochs):
+        vi=np.random.choice(len(train_data["valid"]),n,replace=False)
+        vf=torch.stack([train_data["valid"][i][0] for i in vi]).to(DEVICE)
+        # Reconstruct each frame independently: flatten H into batch
+        B,H,C,W_img,H_img=vf.shape
+        frames_flat=vf.reshape(B*H,C,W_img,H_img)
+        slots_flat=enc.encode_frame(frames_flat)  # (B*H, N, d)
+        recon_flat=dec.decode_frame(slots_flat)    # (B*H, C, W, H)
+        loss=F.mse_loss(recon_flat,frames_flat)
+        opt.zero_grad(); loss.backward(); opt.step()
+        if (ep+1)%20==0: print(f"  recon ep {ep+1}/{epochs}: loss={loss.item():.4f}")
+    enc.eval(); dec.eval()
+    return enc,dec
+
 def main():
     set_seed(42); rng=np.random.RandomState(42)
     print("STAGE 2 v2 — Calibrated VideoSlotIWCM"); print("="*55)
@@ -163,7 +184,10 @@ def main():
     te=gen_dataset(NUM_TEST,NUM_TEST,np.random.RandomState(123))
     print(f"Data: train v={len(tr['valid'])} c={len(tr['corrupt'])} val v={len(va['valid'])} c={len(va['corrupt'])} test v={len(te['valid'])} c={len(te['corrupt'])} ({time.time()-t0:.1f}s)")
     print("Train Oracle..."); t0=time.time(); mo=train_oracle(tr); print(f"  {time.time()-t0:.1f}s")
-    print("Train Video..."); t0=time.time(); enc,iwv=train_video(tr); print(f"  {time.time()-t0:.1f}s")
+    print("Pretrain Encoder+Decoder (reconstruction)..."); t0=time.time()
+    enc,dec=pretrain_encoder(tr, epochs=50); print(f"  {time.time()-t0:.1f}s")
+    print("Train Video IWCM on pretrained slots..."); t0=time.time()
+    enc,iwv=train_video(tr, encoder=enc); print(f"  {time.time()-t0:.1f}s")
     mo_val=compute_metrics(mo,va,use_oracle=True); mv_val=compute_metrics(None,va,use_oracle=False,encoder=enc,iwcm_v=iwv)
     mo_test=compute_metrics(mo,te,use_oracle=True); mv_test=compute_metrics(None,te,use_oracle=False,encoder=enc,iwcm_v=iwv)
     # Energy stats

@@ -148,18 +148,31 @@ class AC3Trainer:
         violation_counts = [len(self.oracle(ct)) for ct in all_corrupted[:C]]
         violation_tensor = torch.tensor(violation_counts, dtype=torch.float32, device=device)
 
-        # Phase 3: World Model training (contrastive margin loss)
+        # Phase 3: World Model training — use hardness-filtered corruptions
         self.opt_world.zero_grad()
 
         energy_valid = self.world_model.energy(z0, A, Z)
         energy_invalid = self.world_model.energy(z0_corr, A_corr, Z_corr)
 
-        # Contrastive loss: valid should be BELOW -margin, invalid ABOVE +margin
-        margin_v = 1.0
-        loss_valid = self.lambda_valid * F.relu(energy_valid + margin_v).mean()
-        loss_invalid = self.lambda_invalid * F.relu(margin_v - energy_invalid).mean()
+        # Compute hardness and select only corruptions near the model's uncertainty boundary
+        with torch.no_grad():
+            accept_scores_pre = self.world_model.score_accept(z0_corr, A_corr, Z_corr)
 
-        # Energy regularization: prevent explosion
+        # Select hard negatives: those the model is uncertain about
+        in_range = (accept_scores_pre >= self.curriculum.accept_low) & (
+            accept_scores_pre <= self.curriculum.accept_high)
+
+        if in_range.sum() > 4:
+            # Train only on hard corruptions
+            hard_indices = in_range.nonzero(as_tuple=True)[0]
+            energy_invalid_hard = self.world_model.energy(
+                z0_corr[hard_indices], A_corr[hard_indices], Z_corr[hard_indices],
+            )
+            loss_invalid = self.lambda_invalid * F.relu(1.0 - energy_invalid_hard).mean()
+        else:
+            loss_invalid = self.lambda_invalid * F.relu(1.0 - energy_invalid).mean()
+
+        loss_valid = self.lambda_valid * F.relu(energy_valid + 1.0).mean()
         reg = 0.001 * (energy_valid.pow(2).mean() + energy_invalid.pow(2).mean())
 
         repaired_Z, repair_imp = self.world_model.repair(z0_corr, A_corr, Z_corr)

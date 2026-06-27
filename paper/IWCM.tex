@@ -591,6 +591,92 @@ Metric 9 is the definitive law-vs.-average diagnostic.
 
 Model A achieves low one-step error but collapses at $H = 50$. Model B (repair + random) produces temporally coherent but causally inconsistent long-horizon futures. Model C (AC3 / TAMG) maintains low constraint violation rate and, critically, generalizes to held-out constraint violations not seen during training. The killer result: Model C rejects causally invalid plans that A and B accept, specifically for held-out constraint categories expressed through novel surface patterns.
 
+\subsection{Actual Results: Compositional Corruption Grid}
+
+\paragraph{Architecture.} The fused pooling IWCM uses a single shared projection $\text{Linear}(d \to 128)$ followed by temporal mean/max/std pooling (no recurrence, no attention, 52K parameters). This replaces a 579K-parameter bidirectional GRU variant.
+
+\paragraph{Training.} Compositional corruption grid with 5 axes (object type, context, violation type, time gap, distractors). 293 valid + 575 corrupted trajectories for training, 196 valid + 514 corrupted for testing. Margin-based ranking loss: valid energy below -1, corrupted energy above +1.
+
+\paragraph{Key Result.} At 52K parameters, IWCM matches or exceeds a 990K flat MLP across all metrics while being 19$\times$ smaller:
+
+\begin{table}[h]
+\centering
+\begin{tabular}{@{}lrrrr@{}}
+\toprule
+Model & Params & Conservation & Identity & Invalid Rej \\
+\midrule
+990K MLP & 990K & 0.665 & 0.318 & 0.529 \\
+54K MLP & 54K & 0.564 & 0.182 & 0.413 \\
+Slow IWCM (GRU) & 579K & 0.695 & 0.331 & 0.552 \\
+\textbf{Fused Pooling IWCM} & \textbf{52K} & \textbf{0.879} & \textbf{0.880} & \textbf{0.874} \\
+Distilled MLP & 990K & 0.824 & 0.417 & 0.664 \\
+\bottomrule
+\end{tabular}
+\caption{IWCM at 52K parameters beats 990K MLP across all metrics. 5-seed significance: conservation $0.879\pm0.016$, identity $0.880\pm0.019$, invalid rejection $0.874\pm0.017$.}
+\end{table}
+
+\paragraph{Per-Violation Detection.} IWCM detects duplicate (0.894), teleport (0.979), transform (0.937), and reverse (0.525) violations at high rates. Delete (0.726) and swap (0.709) remain harder — object disappearance without interaction and identity trading require cross-slot reasoning the current architecture lacks.
+
+\subsection{Why Temporal Pooling?}
+
+We tested a NoPool variant where the temporal dimension is flattened into a single $\text{Linear}(H \cdot 128 \to 3)$ per slot — no explicit pooling, no reduction kernels. Identity detection collapsed from 0.880 to 0.284 regardless of hidden layer size (tested 0, 32, 64, 128 hidden dims). Conservation held at 0.61--0.68. \textbf{Max pooling is structurally necessary}: identity violations (swap, duplicate, teleport) manifest as single-timestep anomalies that only a non-differentiable max operation can detect.
+
+% -------------------------------------------------------
+\section{Speed and Cost Analysis}
+\label{sec:speed}
+% -------------------------------------------------------
+
+\subsection{Microsecond Inference}
+
+The IWCM energy function evaluates an entire 25-step worldline in a single feed-forward pass. On an NVIDIA RTX 3060:
+
+\begin{table}[h]
+\centering
+\begin{tabular}{@{}lrrr@{}}
+\toprule
+Variant & Latency ($\mu$s) & Throughput (sps) & Speedup \\
+\midrule
+Vanilla PyTorch (eager) & 120.5 & 8.3K & 1.0$\times$ \\
++ Triton fused pool (custom CUDA) & 99.8 & 10.0K & 1.2$\times$ \\
++ CUDA Graph & \textbf{33.0} & \textbf{30.3K} & \textbf{3.7$\times$} \\
+990K MLP (flat) & 44.7 & 22.4K & — \\
+\bottomrule
+\end{tabular}
+\caption{Batch-1 latency. IWCM with CUDA Graph achieves 33$\mu$s per worldline — 28\% faster than a flat 990K MLP with 5\% of the parameters.}
+\end{table}
+
+Optimizations: (1) Triton-fused temporal pooling merges mean+max+variance into a single GPU kernel (was 6 kernel launches); (2) CUDA Graph capture eliminates 55$\mu$s of kernel launch overhead per forward pass.
+
+\subsection{Cost Per Worldline}
+
+\begin{table}[h]
+\centering
+\begin{tabular}{@{}lr@{}}
+\toprule
+Method & Time \\
+\midrule
+\textbf{IWCM energy (optimized)} & \textbf{0.033 ms} \\
+IWCM solver iteration (fwd+bwd) & 0.18 ms \\
+IWCM planning (50 iter $\times$ 8 lines) & 9.0 ms \\
+Transformer (O($H^2$) attention) & $\sim$0.6 ms \\
+DreamerV3 RSSM rollout (25 steps) & $\sim$50 ms \\
+MPPI (1000 candidate rollouts) & $\sim$100 ms \\
+Video encoding (CNN+slots) & 10--50 ms \\
+\bottomrule
+\end{tabular}
+\caption{IWCM is 1,500$\times$ cheaper per worldline than autoregressive rollout and 3,000$\times$ cheaper than MPPI sampling. The energy function is never the cost bottleneck — encoding dominates video models, and solver iterations dominate symbolic models.}
+\end{table}
+
+\subsection{Backward Pass Optimization}
+
+PyTorch's autograd chain for temporal pooling costs $\sim$241$\mu$s per fwd+bwd pass. A custom CUDA Graph (capturing Triton forward + Triton backward kernels) reduces this to \textbf{26$\mu$s} — a \textbf{9.3$\times$ speedup}. The root cause of a stubborn correctness bug was stride-0 broadcast tensors from autograd silently corrupting Triton pointer arithmetic; the fix was \texttt{.contiguous()} guards on all gradient inputs.
+
+Solver impact: 50 gradient descent iterations drop from 12.1 ms to 1.3 ms (CUDA Graph) or 9.0 ms (autograd).
+
+\subsection{Structural Efficiency}
+
+IWCM achieves 7,639 samples/s/param vs MLP's 1,031 — \textbf{7.4$\times$ higher throughput per parameter}. The energy function is $O(1)$ over horizon for the core operation (temporal pooling scans $H$ elements but doesn't grow quadratically). Doubling the horizon from $H=25$ to $H=50$ increases compute by $\sim$2$\times$ (the shared projection scales linearly with $H$), vs $4\times$ for attention-based models.
+
 % -------------------------------------------------------
 \section{Discussion}
 \label{sec:discussion}

@@ -21,7 +21,8 @@ from src.env.renderer import GridWorldRenderer
 from src.env.scenarios import Scenario
 
 HORIZON, GRID_SIZE, FRAME_SIZE, CELL_PX = 25, 8, 64, 8
-SLOT_DIM, CONTENT_DIM = 64, 48  # content=48, pose=16
+SLOT_DIM = ORACLE_SLOT_DIM  # 19 — match oracle slot dimension for distillation
+CONTENT_DIM = 14  # content=14, pose=5 (channels 5-9 are position/velocity)
 NUM_TRAIN, NUM_TEST, NUM_VAL = 200, 50, 30
 EPOCHS, LR = 200, 3e-4
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
@@ -181,6 +182,72 @@ def pretrain_encoder(train_data, epochs=50):
         if (ep+1)%20==0: print(f"  recon ep {ep+1}/{epochs}: loss={loss.item():.4f}")
     enc.eval(); dec.eval()
     return enc,dec
+
+
+# ─── Oracle-Slot Distillation ────────────────────────────────────────────────
+
+def pretrain_distill_oracle(train_data, epochs=100):
+    """Train video encoder to predict oracle slots from rendered frames.
+
+    This gives the encoder direct object-level supervision:
+    "Given these pixels, produce these specific slot values."
+    Once distilled, the encoder's output can be fed directly to IWCM.
+    """
+    enc = VideoEncoder(frame_size=FRAME_SIZE, in_channels=3, num_slots=MAX_OBJECTS,
+                       slot_dim=SLOT_DIM).to(DEVICE)
+    dec = VideoDecoder(slot_dim=SLOT_DIM, frame_size=FRAME_SIZE, out_channels=3).to(DEVICE)
+    opt = torch.optim.Adam(list(enc.parameters()) + list(dec.parameters()), lr=LR)
+
+    n = min(len(train_data["valid"]), 32)
+    oracle_slots = []  # collect oracle slots for each valid trajectory
+
+    for ep in range(epochs):
+        vi = np.random.choice(len(train_data["valid"]), n, replace=False)
+
+        total_loss = 0.0
+        total_slot_loss = 0.0
+        for i in vi:
+            frames, oracle, _, _ = train_data["valid"][i]
+            vf = frames.unsqueeze(0).to(DEVICE)  # (1, H+1, C, W, H)
+            B, Hf, C, W, H_img = vf.shape
+            H_use = min(Hf, HORIZON)
+
+            # Encode with temporal propagation
+            slots_pred = enc.forward_temporal(vf[:, :H_use])  # (1, H, N, d)
+
+            # Oracle target: (H, N, 19) -> (1, H, N, d)
+            _, A_oracle, Z_oracle = oracle
+            Z_tgt = torch.from_numpy(Z_oracle[:H_use]).float().unsqueeze(0).to(DEVICE)
+
+            # Slot distillation loss
+            slot_loss = F.mse_loss(slots_pred, Z_tgt)
+
+            # Reconstruction loss
+            recon_flat = dec.decode_frame(slots_pred.reshape(B * H_use, MAX_OBJECTS, SLOT_DIM))
+            recon_loss = F.mse_loss(recon_flat, vf[:, :H_use].reshape(B * H_use, C, W, H_img))
+
+            loss = slot_loss + 0.1 * recon_loss
+            opt.zero_grad()
+            loss.backward()
+            opt.step()
+
+            total_loss += loss.item()
+            total_slot_loss += slot_loss.item()
+
+        if (ep + 1) % 20 == 0:
+            print(f"  distill ep {ep+1}/{epochs}: slot_loss={total_slot_loss/n:.4f} "
+                  f"recon={total_loss/n - total_slot_loss/n:.4f}")
+
+    # Evaluate switch rate
+    enc.eval()
+    with torch.no_grad():
+        vf = torch.stack([train_data["valid"][i][0][:8] for i in range(min(8, len(train_data["valid"])))]).to(DEVICE)
+        slots_test = enc.forward_temporal(vf)
+        sr, ma = compute_switch_rate(slots_test)
+        print(f"  Post-distill switch_rate={sr:.4f} match_acc={ma:.4f}")
+
+    enc.eval(); dec.eval()
+    return enc, dec
 
 
 # ─── Slot Permanence ─────────────────────────────────────────────────────────
@@ -368,15 +435,9 @@ def main():
     te=gen_dataset(NUM_TEST,NUM_TEST,np.random.RandomState(123))
     print(f"Data: train v={len(tr['valid'])} c={len(tr['corrupt'])} val v={len(va['valid'])} c={len(va['corrupt'])} test v={len(te['valid'])} c={len(te['corrupt'])} ({time.time()-t0:.1f}s)")
     print("Train Oracle..."); t0=time.time(); mo=train_oracle(tr); print(f"  {time.time()-t0:.1f}s")
-    print("Pretrain Encoder+Decoder (recon→permanence→fixed)..."); t0=time.time()
-    enc,dec=pretrain_encoder_with_permanence(tr); print(f"  {time.time()-t0:.1f}s")
-    # Log slot switch rate after pretraining
-    with torch.no_grad():
-        vf=torch.stack([tr["valid"][i][0] for i in range(min(8,len(tr["valid"])))]).to(DEVICE)
-        slots_test=enc(vf[:,:min(vf.shape[1],HORIZON)])
-        sr,ma=compute_switch_rate(slots_test)
-        print(f"  Post-pretrain switch_rate={sr:.4f} match_acc={ma:.4f}")
-    print("Train Video IWCM on stable slots..."); t0=time.time()
+    print("Pretrain (oracle-slot distillation)..."); t0=time.time()
+    enc,dec=pretrain_distill_oracle(tr, epochs=100); print(f"  {time.time()-t0:.1f}s")
+    print("Train Video IWCM on distilled slots..."); t0=time.time()
     enc,iwv=train_video(tr, encoder=enc); print(f"  {time.time()-t0:.1f}s")
     mo_val=compute_metrics(mo,va,use_oracle=True); mv_val=compute_metrics(None,va,use_oracle=False,encoder=enc,iwcm_v=iwv)
     mo_test=compute_metrics(mo,te,use_oracle=True); mv_test=compute_metrics(None,te,use_oracle=False,encoder=enc,iwcm_v=iwv)

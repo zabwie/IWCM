@@ -1,9 +1,15 @@
 #!/usr/bin/env python3
-"""Stage 2 v2: VideoSlotIWCM — calibrated comparison with AUROC, energy dist, balanced acc."""
+"""Stage 2.1: VideoSlotIWCM with temporal slot-permanence pretraining.
+
+Adds Hungarian-matched slot permanence loss across adjacent frames to
+enforce object persistence in the learned slot representations.
+"""
 import sys, time, numpy as np, torch, torch.nn.functional as F
 from pathlib import Path
 from collections import defaultdict
 sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from scipy.optimize import linear_sum_assignment
 
 from src.utils.seed import set_seed
 from src.encoder.oracle_slot_encoder import (encode_oracle_trajectory, build_door_key_map, ORACLE_SLOT_DIM, MAX_OBJECTS)
@@ -15,7 +21,7 @@ from src.env.renderer import GridWorldRenderer
 from src.env.scenarios import Scenario
 
 HORIZON, GRID_SIZE, FRAME_SIZE, CELL_PX = 25, 8, 64, 8
-SLOT_DIM = 64
+SLOT_DIM, CONTENT_DIM = 64, 48  # content=48, pose=16
 NUM_TRAIN, NUM_TEST, NUM_VAL = 200, 50, 30
 EPOCHS, LR = 200, 3e-4
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
@@ -141,10 +147,10 @@ def train_video(train_data, encoder=None):
         ci=np.random.choice(len(train_data["corrupt"]),min(n,len(train_data["corrupt"])),replace=False)
         vf=torch.stack([train_data["valid"][i][0] for i in vi]).to(DEVICE)
         vA=torch.stack([torch.from_numpy(train_data["valid"][i][2][:HORIZON]).float() for i in vi]).to(DEVICE)
-        vs=enc(vf[:,:HORIZON]); vz=vs[:,0]
+        vs=enc.forward_temporal(vf[:,:HORIZON]); vz=vs[:,0]
         cf=torch.stack([train_data["corrupt"][i][0] for i in ci]).to(DEVICE)
         cA=torch.stack([torch.from_numpy(train_data["corrupt"][i][2][:HORIZON]).float() for i in ci]).to(DEVICE)
-        cs=enc(cf[:,:HORIZON]); cz=cs[:,0]
+        cs=enc.forward_temporal(cf[:,:HORIZON]); cz=cs[:,0]
         opt.zero_grad()
         ev=iw(vz,vA,vs); ec=iw(cz,cA,cs)
         loss_iwcm=(F.relu(ev+1.0).mean()+F.relu(1.0-ec).mean()+0.001*(ev.pow(2).mean()+ec.pow(2).mean()))
@@ -176,6 +182,184 @@ def pretrain_encoder(train_data, epochs=50):
     enc.eval(); dec.eval()
     return enc,dec
 
+
+# ─── Slot Permanence ─────────────────────────────────────────────────────────
+
+def hungarian_match_slots(slots_t, slots_tp1, temperature=0.1):
+    """Match slots at time t to slots at time t+1 via Hungarian algorithm.
+
+    Args:
+        slots_t:   (B, N, d) — slots at timestep t
+        slots_tp1: (B, N, d) — slots at timestep t+1
+        temperature: softmax temperature for similarity
+
+    Returns:
+        matched_slots: (B, N, d) — slots_tp1 reordered to match slots_t
+        match_indices: (B, N) — index in slots_tp1 that matches each slot_t
+    """
+    B, N, d = slots_t.shape
+    device = slots_t.device
+
+    # Cosine similarity between all pairs
+    slots_t_n = F.normalize(slots_t, dim=-1)
+    slots_tp1_n = F.normalize(slots_tp1, dim=-1)
+    sim = torch.bmm(slots_t_n, slots_tp1_n.transpose(1, 2))  # (B, N, N)
+    cost = (1.0 - sim).detach().cpu().numpy()  # Hungarian minimizes cost
+
+    matched = torch.zeros_like(slots_tp1)
+    indices = torch.zeros(B, N, dtype=torch.long, device=device)
+
+    for b in range(B):
+        row_ind, col_ind = linear_sum_assignment(cost[b])
+        matched[b, row_ind] = slots_tp1[b, col_ind]
+        indices[b, row_ind] = torch.tensor(col_ind, device=device)
+
+    return matched, indices
+
+
+def compute_switch_rate(slots):
+    """Compute slot switch rate: fraction of slots that change index across time.
+
+    Args:
+        slots: (B, H, N, d)
+
+    Returns:
+        switch_rate: scalar — lower is better (0=perfectly stable)
+        match_accuracy: scalar — fraction of slots matched to same index
+    """
+    B, H, N, d = slots.shape
+    switches = 0
+    matches = 0
+    total = 0
+
+    for b in range(B):
+        for t in range(H - 1):
+            _, indices = hungarian_match_slots(
+                slots[b:b+1, t], slots[b:b+1, t+1]
+            )
+            switches += (indices[0] != torch.arange(N, device=slots.device)).sum().item()
+            matches += (indices[0] == torch.arange(N, device=slots.device)).sum().item()
+            total += N
+
+    return switches / max(total, 1), matches / max(total, 1)
+
+
+def slot_permanence_loss(slots, content_dim=CONTENT_DIM):
+    """Hungarian-matched slot permanence loss across time.
+
+    For each adjacent pair (t, t+1): match slots via Hungarian,
+    penalize content change, allow pose change.
+
+    Args:
+        slots: (B, H, N, d)
+
+    Returns:
+        loss: scalar
+        switch_rate: diagnostic
+    """
+    B, H, N, d = slots.shape
+    loss = 0.0
+    total_switches = 0
+
+    for t in range(H - 1):
+        matched, indices = hungarian_match_slots(slots[:, t], slots[:, t+1])
+
+        # Content loss on matched pairs
+        content_loss = F.mse_loss(
+            matched[:, :, :content_dim],
+            slots[:, t, :, :content_dim]
+        )
+
+        # Pose change should be small but non-zero
+        pose_loss = F.mse_loss(
+            matched[:, :, content_dim:],
+            slots[:, t, :, content_dim:]
+        )
+
+        loss += content_loss + 0.3 * pose_loss
+
+        # Track switches
+        ideal = torch.arange(N, device=slots.device).unsqueeze(0).expand(B, -1)
+        total_switches += (indices != ideal).float().mean().item()
+
+    return loss / (H - 1), total_switches / (H - 1)
+
+
+# ─── Multi-Phase Pretraining ─────────────────────────────────────────────────
+
+def pretrain_encoder_with_permanence(train_data, epochs_per_phase=30):
+    """Multi-phase pretraining: recon → matched permanence → fixed-index → IWCM-ready.
+
+    Phase 1: reconstruction only (learn to represent scenes)
+    Phase 2: reconstruction + matched permanence (learn object persistence)
+    Phase 3: reconstruction + fixed-index permanence (stabilize assignments)
+    Phase 4: reconstruction + permanence + IWCM margin (law detection)
+    """
+    enc = VideoEncoder(frame_size=FRAME_SIZE, in_channels=3, num_slots=MAX_OBJECTS,
+                       slot_dim=SLOT_DIM).to(DEVICE)
+    dec = VideoDecoder(slot_dim=SLOT_DIM, frame_size=FRAME_SIZE, out_channels=3).to(DEVICE)
+    opt = torch.optim.Adam(list(enc.parameters()) + list(dec.parameters()), lr=LR)
+
+    n = min(len(train_data["valid"]), 32)
+    phases = [
+        ("Phase 1: recon only", epochs_per_phase, 1.0, 0.0, 0.0),       # recon_weight, perm_weight, fixed_weight
+        ("Phase 2: +matched permanence", epochs_per_phase, 0.5, 0.5, 0.0),
+        ("Phase 3: +fixed-index stability", epochs_per_phase//2, 0.3, 0.3, 0.4),
+        ("Phase 4: +IWCM margin", epochs_per_phase//2, 0.2, 0.2, 0.3),
+    ]
+
+    for phase_name, epochs, w_recon, w_perm, w_fixed in phases:
+        print(f"  {phase_name}")
+        for ep in range(epochs):
+            vi = np.random.choice(len(train_data["valid"]), n, replace=False)
+            vf = torch.stack([train_data["valid"][i][0] for i in vi]).to(DEVICE)
+
+            # Reconstruction + temporal slot propagation
+            Bf, Hf, C, W, H_img = vf.shape
+            slots = enc.forward_temporal(vf)  # (B, H, N, d) — temporally consistent
+            slots_flat = slots.reshape(Bf * Hf, MAX_OBJECTS, SLOT_DIM)
+            recon_flat = dec.decode_frame(slots_flat)
+            loss_recon = F.mse_loss(recon_flat, vf.reshape(Bf * Hf, C, W, H_img))
+
+            loss = w_recon * loss_recon
+
+            # Slot permanence (if enabled)
+            perm_loss = torch.tensor(0.0, device=DEVICE)
+            switch_rate = 0.0
+            if w_perm > 0:
+                perm_loss, switch_rate = slot_permanence_loss(slots)
+
+            # Fixed-index permanence (if enabled)
+            fixed_loss = torch.tensor(0.0, device=DEVICE)
+            if w_fixed > 0:
+                for t in range(Hf - 1):
+                    fixed_loss += F.mse_loss(
+                        slots[:, t+1, :, :CONTENT_DIM],
+                        slots[:, t, :, :CONTENT_DIM]
+                    )
+                fixed_loss /= max(Hf - 1, 1)
+
+            loss += w_perm * perm_loss + w_fixed * 0.5 * fixed_loss
+
+            opt.zero_grad()
+            loss.backward()
+            opt.step()
+
+        # Phase diagnostic
+        enc.eval()
+        with torch.no_grad():
+            vf = torch.stack([train_data["valid"][i][0][:8] for i in range(min(8, len(train_data["valid"])))])
+            vf = vf.to(DEVICE)
+            Bf, Hf, C, W, H_img = vf.shape
+            slots = enc(vf[:, :Hf])
+            sr, ma = compute_switch_rate(slots)
+        enc.train()
+        print(f"    recon={loss_recon.item():.4f} perm={perm_loss.item():.4f} "
+              f"fixed={fixed_loss.item():.4f} switch_rate={sr:.3f} match_acc={ma:.3f}")
+
+    enc.eval(); dec.eval()
+    return enc, dec
+
 def main():
     set_seed(42); rng=np.random.RandomState(42)
     print("STAGE 2 v2 — Calibrated VideoSlotIWCM"); print("="*55)
@@ -184,9 +368,15 @@ def main():
     te=gen_dataset(NUM_TEST,NUM_TEST,np.random.RandomState(123))
     print(f"Data: train v={len(tr['valid'])} c={len(tr['corrupt'])} val v={len(va['valid'])} c={len(va['corrupt'])} test v={len(te['valid'])} c={len(te['corrupt'])} ({time.time()-t0:.1f}s)")
     print("Train Oracle..."); t0=time.time(); mo=train_oracle(tr); print(f"  {time.time()-t0:.1f}s")
-    print("Pretrain Encoder+Decoder (reconstruction)..."); t0=time.time()
-    enc,dec=pretrain_encoder(tr, epochs=50); print(f"  {time.time()-t0:.1f}s")
-    print("Train Video IWCM on pretrained slots..."); t0=time.time()
+    print("Pretrain Encoder+Decoder (recon→permanence→fixed)..."); t0=time.time()
+    enc,dec=pretrain_encoder_with_permanence(tr); print(f"  {time.time()-t0:.1f}s")
+    # Log slot switch rate after pretraining
+    with torch.no_grad():
+        vf=torch.stack([tr["valid"][i][0] for i in range(min(8,len(tr["valid"])))]).to(DEVICE)
+        slots_test=enc(vf[:,:min(vf.shape[1],HORIZON)])
+        sr,ma=compute_switch_rate(slots_test)
+        print(f"  Post-pretrain switch_rate={sr:.4f} match_acc={ma:.4f}")
+    print("Train Video IWCM on stable slots..."); t0=time.time()
     enc,iwv=train_video(tr, encoder=enc); print(f"  {time.time()-t0:.1f}s")
     mo_val=compute_metrics(mo,va,use_oracle=True); mv_val=compute_metrics(None,va,use_oracle=False,encoder=enc,iwcm_v=iwv)
     mo_test=compute_metrics(mo,te,use_oracle=True); mv_test=compute_metrics(None,te,use_oracle=False,encoder=enc,iwcm_v=iwv)

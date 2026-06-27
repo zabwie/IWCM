@@ -73,11 +73,12 @@ class VideoEncoder(BaseModel):
             num_iters=slot_iters,
         )
 
-    def encode_frame(self, frame: torch.Tensor) -> torch.Tensor:
+    def encode_frame(self, frame: torch.Tensor, init_slots: torch.Tensor = None) -> torch.Tensor:
         """Encode a single frame (or batch of frames) to slots.
 
         Args:
             frame: Tensor of shape (B, C, H, W) or (B*H, C, H, W).
+            init_slots: Optional (B, num_slots, slot_dim) initial slots for tracking.
 
         Returns:
             Slots of shape (B, num_slots, slot_dim).
@@ -95,7 +96,7 @@ class VideoEncoder(BaseModel):
         features = features + self.pos_embed
 
         # Slot attention
-        slots = self.slot_attention(features)  # (B, num_slots, slot_dim)
+        slots = self.slot_attention(features, init_slots=init_slots)  # (B, num_slots, slot_dim)
 
         return slots
 
@@ -120,7 +121,34 @@ class VideoEncoder(BaseModel):
         slots = slots.reshape(B, H, self.num_slots, self.slot_dim)
         return slots
 
-    def encode_single(self, frame: torch.Tensor) -> torch.Tensor:
+    def forward_temporal(self, video: torch.Tensor) -> torch.Tensor:
+        """Encode with temporal slot propagation — t+1 initialized from t.
+
+        Processes frames sequentially, feeding each frame's slot output
+        as the next frame's slot initialization. This naturally creates
+        temporally consistent slot assignments.
+
+        Args:
+            video: (B, H, C, W, H_f) — batch of frame sequences.
+
+        Returns:
+            Worldline slab of shape (B, H, num_slots, slot_dim).
+        """
+        B, H, C, W_f, H_f = video.shape
+        all_slots = []
+
+        # First frame: no initialization (uses learned initial slots)
+        frame_0 = video[:, 0]
+        slots = self.encode_frame(frame_0)
+        all_slots.append(slots)
+
+        # Subsequent frames: initialize from previous output
+        for t in range(1, H):
+            frame_t = video[:, t]
+            slots = self.encode_frame(frame_t, init_slots=slots.detach())
+            all_slots.append(slots)
+
+        return torch.stack(all_slots, dim=1)  # (B, H, N, d)
         """Encode a single frame (no time dimension).
 
         Args:

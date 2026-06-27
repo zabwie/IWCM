@@ -68,12 +68,15 @@ class SlotAttention(nn.Module):
         self.slots_logsigma = nn.Parameter(torch.zeros(1, 1, slot_dim))
 
     def forward(
-        self, inputs: torch.Tensor
+        self, inputs: torch.Tensor, init_slots: torch.Tensor = None
     ) -> torch.Tensor:
         """Apply slot attention to input features.
 
         Args:
             inputs: Feature tensor of shape (B, N_features, d_input).
+            init_slots: Optional (B, num_slots, slot_dim) — if provided,
+                initializes slots from these instead of learned parameters.
+                Enables temporal slot tracking across frames.
 
         Returns:
             Slots tensor of shape (B, num_slots, slot_dim).
@@ -85,10 +88,13 @@ class SlotAttention(nn.Module):
         k = self.key_proj(inputs)    # (B, N_feat, slot_dim)
         v = self.value_proj(inputs)  # (B, N_feat, slot_dim)
 
-        # Initialize slots from learned distribution
-        slots = self.slots_mu + torch.exp(self.slots_logsigma) * torch.randn(
-            B, self.num_slots, self.slot_dim, device=device
-        )
+        # Initialize slots
+        if init_slots is not None:
+            slots = init_slots
+        else:
+            slots = self.slots_mu + torch.exp(self.slots_logsigma) * torch.randn(
+                B, self.num_slots, self.slot_dim, device=device
+            )
 
         # Iterative refinement
         for _ in range(self.num_iters):

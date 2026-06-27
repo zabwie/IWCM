@@ -44,7 +44,7 @@ for scenario_name in PREDEFINED_SCENARIOS:
 print(f"Generated {len(all_valid)} valid trajectories from {len(PREDEFINED_SCENARIOS)} scenarios")
 
 # Load corruption data
-with open("data/corruption_train.pkl", "rb") as f:
+with open("data/corruption_all_forms.pkl", "rb") as f:
     cdata = pickle.load(f)
 with open("data/cross_surface.pkl", "rb") as f:
     evdata = pickle.load(f)
@@ -57,7 +57,7 @@ valid = np_to_torch(all_valid)
 corruptions = {}
 all_corr = []
 for law in ["conservation", "identity", "locality", "temporal"]:
-    tr = np_to_torch(cdata["corruptions"][law]["train"])
+    tr = np_to_torch(cdata["corruptions"][law]["all"])
     corruptions[law] = tr
     all_corr.extend(tr)
 

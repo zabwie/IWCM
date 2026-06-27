@@ -40,12 +40,13 @@ class CounterfactualHead(ConstraintHead):
             nn.Linear(hidden_dim // 2, 1),
         )
 
-    def forward_standard(
+    def forward(
         self, z0: torch.Tensor, A: torch.Tensor, Z: torch.Tensor
     ) -> torch.Tensor:
-        """Standard forward (single worldline) — returns zero by default.
+        """Standard forward (single worldline) — returns zero.
 
-        Counterfactual head only produces meaningful output with paired inputs.
+        Counterfactual head only produces meaningful output with paired inputs
+        via forward_paired().
         """
         return torch.zeros(z0.shape[0], device=z0.device)
 

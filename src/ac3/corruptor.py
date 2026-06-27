@@ -60,36 +60,22 @@ class AC3Corruptor(BaseModel):
     def _encode_trajectory(
         self, traj: SymbolicTrajectory
     ) -> torch.Tensor:
-        """Encode start and end state of trajectory for mutation selection.
+        device = next(self.type_selector.parameters()).device
 
-        Args:
-            traj: Symbolic trajectory.
-
-        Returns:
-            Feature vector: concatenation of start and end state encodings.
-        """
-        # Simple encoding: count objects, positions
         def _state_vector(state: SymbolicState) -> torch.Tensor:
-            vec = torch.zeros(self.d_state)
+            vec = torch.zeros(self.d_state, device=device)
             idx = 0
-            # Agent position
             if state.agent_pos:
                 vec[idx] = float(state.agent_pos[0]) / 10.0
                 vec[idx + 1] = float(state.agent_pos[1]) / 10.0
             idx += 2
-            # Object counts
             for t in ["key", "door", "box", "occluder"]:
                 count = sum(1 for o in state.object_types.values() if o == t)
-                if idx < self.d_state:
-                    vec[idx] = float(count) / 10.0
+                if idx < self.d_state: vec[idx] = float(count) / 10.0
                 idx += 1
-            # Door open count
-            if idx < self.d_state:
-                vec[idx] = float(sum(state.door_states.values())) / 10.0
+            if idx < self.d_state: vec[idx] = float(sum(state.door_states.values())) / 10.0
             idx += 1
-            # Inventory count
-            if idx < self.d_state:
-                vec[idx] = float(len(state.inventory)) / 5.0
+            if idx < self.d_state: vec[idx] = float(len(state.inventory)) / 5.0
             return vec
 
         start_vec = _state_vector(traj.states[0])
@@ -134,8 +120,9 @@ class AC3Corruptor(BaseModel):
             corrupted.append(traj_corrupted)
             magnitudes_list.append(magnitude)
 
-        type_probs = torch.stack(type_probs_list) if type_probs_list else torch.empty(0, 7)
-        magnitudes = torch.stack(magnitudes_list) if magnitudes_list else torch.empty(0)
+        device = next(self.type_selector.parameters()).device
+        type_probs = torch.stack(type_probs_list) if type_probs_list else torch.empty(0, 7, device=device)
+        magnitudes = torch.stack(magnitudes_list) if magnitudes_list else torch.empty(0, device=device)
 
         return corrupted, type_probs, magnitudes
 

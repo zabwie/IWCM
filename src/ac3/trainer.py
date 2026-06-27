@@ -157,33 +157,27 @@ class AC3Trainer:
         # ─── Phase 4: Corruptor training ───
         self.opt_corruptor.zero_grad()
 
-        # Re-evaluate with updated world model
+        # Generate corruptions through the corruptor (with gradients)
+        # The corruptor outputs logits for mutation type selection
+        # We create a differentiable proxy loss
+        corrupted_trajs_batch, type_probs, magnitudes = self.corruptor(
+            symbolic_trajs,
+        )
+
+        # Score corrupted trajectories with world model (detached)
         with torch.no_grad():
-            accept_scores = self.world_model.score_accept(
-                z0_corrupted, A_corrupted, Z_corrupted,
-            )
+            accept_scores = self.world_model.score_accept(z0_corrupted, A_corrupted, Z_corrupted)
 
-        # Filter hard negatives
-        hard_indices, _ = self.hardness_scorer.select_hard_negatives(
-            all_corrupted_trajs, accept_scores,
-            surface_distances=torch.zeros_like(accept_scores),
-            edit_distances=torch.zeros_like(accept_scores),
-            violation_counts=violation_tensor,
-            top_k=self.curriculum.top_k,
-            accept_low=self.curriculum.accept_low,
-            accept_high=self.curriculum.accept_high,
-        )
-
-        # Corruptor should maximize: acceptance + violation - edit_distance + diversity
-        # Note: this is a simplified version — full TAMG has manifold/minimality terms
-        loss_corruptor = -(
-            self.lambda_accept * accept_scores.mean() +
-            violation_tensor.float().mean() -
-            (1.0 / B) * sum(  # diversity: favor diverse mutation types
-                torch.distributions.Categorical(logits=torch.randn(self.num_mutations_per_sample)).entropy()
-                for _ in range(B)
+        # Corruptor loss: maximize acceptance + diversity of mutation types
+        if type_probs.numel() > 0:
+            mutation_entropy = -(type_probs * torch.log(type_probs + 1e-8)).sum(dim=-1).mean()
+            loss_corruptor = -(
+                self.lambda_accept * accept_scores.mean() +
+                self.lambda_diversity * mutation_entropy
             )
-        )
+        else:
+            loss_corruptor = -self.lambda_accept * accept_scores.mean()
+
         loss_corruptor.backward()
         self.opt_corruptor.step()
 

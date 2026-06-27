@@ -18,10 +18,10 @@ GPU-optimized: batch evaluation via device="cuda".
 """
 
 import torch
-import torch.nn.functional as F
-from typing import Dict, List, Tuple, Any, Optional
-from collections import defaultdict
 import numpy as np
+import torch.nn.functional as F
+from typing import Dict, List, Tuple, Any, Optional, Union
+from collections import defaultdict
 from sklearn.metrics import roc_auc_score, average_precision_score
 
 from ..iwcm.model import IWCM
@@ -30,6 +30,16 @@ from ..ac3.mutations.grammar import SymbolicMutationGrammar, SymbolicTrajectory
 from ..env.symbolic_state import SymbolicState
 from ..env.scenarios import Scenario
 from ..iwcm.planner import GoalConstraint
+
+
+def _to_tensor(x: Union[np.ndarray, torch.Tensor], device: str = "cuda") -> torch.Tensor:
+    if isinstance(x, np.ndarray):
+        return torch.from_numpy(x).to(device)
+    return x.to(device)
+
+
+def _batch_to_tensors(trajs: List[Tuple]) -> List[Tuple[torch.Tensor, torch.Tensor, torch.Tensor]]:
+    return [(_to_tensor(z0), _to_tensor(A), _to_tensor(Z)) for z0, A, Z in trajs]
 
 
 # ═══════════════════════════════════════════════════════════
@@ -54,15 +64,15 @@ def metric_cross_surface_law_generalization(
 
         correct_valid, correct_invalid = 0, 0
         for z0, A, Z in valid_trajs:
-            z0_d = z0.to(device).unsqueeze(0)
-            A_d = A.to(device).unsqueeze(0)
-            Z_d = Z.to(device).unsqueeze(0)
+            z0_d = _to_tensor(z0, device).unsqueeze(0)
+            A_d = _to_tensor(A, device).unsqueeze(0)
+            Z_d = _to_tensor(Z, device).unsqueeze(0)
             if model.score_accept(z0_d, A_d, Z_d).item() > 0.5:
                 correct_valid += 1
         for z0, A, Z in invalid_trajs:
-            z0_d = z0.to(device).unsqueeze(0)
-            A_d = A.to(device).unsqueeze(0)
-            Z_d = Z.to(device).unsqueeze(0)
+            z0_d = _to_tensor(z0, device).unsqueeze(0)
+            A_d = _to_tensor(A, device).unsqueeze(0)
+            Z_d = _to_tensor(Z, device).unsqueeze(0)
             if model.score_accept(z0_d, A_d, Z_d).item() < 0.5:
                 correct_invalid += 1
 
@@ -101,11 +111,11 @@ def metric_valid_invalid_classification(
     per_type: Dict[str, List[float]] = defaultdict(list)
 
     for z0, A, Z in valid_trajs:
-        z0, A, Z = z0.to(device).unsqueeze(0), A.to(device).unsqueeze(0), Z.to(device).unsqueeze(0)
+        z0, A, Z = _to_tensor(z0,device).unsqueeze(0), _to_tensor(A,device).unsqueeze(0), _to_tensor(Z,device).unsqueeze(0)
         scores.append(model.score_accept(z0, A, Z).item()); labels.append(1)
     for vtype, trajs in invalid_trajs_by_type.items():
         for z0, A, Z in trajs:
-            z0, A, Z = z0.to(device).unsqueeze(0), A.to(device).unsqueeze(0), Z.to(device).unsqueeze(0)
+            z0, A, Z = _to_tensor(z0,device).unsqueeze(0), _to_tensor(A,device).unsqueeze(0), _to_tensor(Z,device).unsqueeze(0)
             s = model.score_accept(z0, A, Z).item()
             scores.append(s); labels.append(0)
             per_type[vtype].append(s)

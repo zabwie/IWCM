@@ -122,10 +122,11 @@ class TrajectoryDataset(Dataset):
 
     def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         z0, A, Z = self._data[idx]
+        d_state = self.grid_size * self.grid_size * 4
         return (
-            torch.from_numpy(z0),
+            torch.from_numpy(z0).reshape(d_state),
             torch.from_numpy(A),
-            torch.from_numpy(Z),
+            torch.from_numpy(Z).reshape(self.horizon, d_state),
         )
 
 
@@ -169,12 +170,13 @@ class CounterfactualDataset(Dataset):
         torch.Tensor, torch.Tensor,
     ]:
         z0, A, Z, Ap, Zp = self._data[idx]
+        d_state = self.grid_size * self.grid_size * 4
         return (
-            torch.from_numpy(z0),
+            torch.from_numpy(z0).reshape(d_state),
             torch.from_numpy(A),
-            torch.from_numpy(Z),
+            torch.from_numpy(Z).reshape(self.horizon, d_state),
             torch.from_numpy(Ap),
-            torch.from_numpy(Zp),
+            torch.from_numpy(Zp).reshape(self.horizon, d_state),
         )
 
 

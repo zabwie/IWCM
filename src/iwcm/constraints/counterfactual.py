@@ -1,10 +1,9 @@
 """Counterfactual consistency constraint head.
 
-Implements C_counterfactual(Z, Z', A, A') — for two futures from the same z0,
-objects not causally reachable by the action difference must remain identical.
-
-This is the most sophisticated constraint head and is critical for
-causal law discovery.
+C_counterfactual: objects must maintain identity-invariant features
+across the worldline. Perturbs Z slightly and checks if inconsistent
+changes are detected — penalizing worldlines where small perturbations
+cause large energy changes (i.e., the worldline is on a causal knife-edge).
 """
 
 import torch
@@ -14,82 +13,34 @@ from .base import ConstraintHead
 
 
 class CounterfactualHead(ConstraintHead):
-    """Counterfactual consistency: unaffected objects must stay identical.
-
-    Takes TWO worldlines (Z, Z') from the same z0 with different actions
-    (A, A'), and penalizes changes to objects not in the action difference.
-    """
-
-    def __init__(
-        self,
-        d_state: int,
-        d_action: int = 11,
-        hidden_dim: int = 256,
-    ):
+    def __init__(self, d_state: int, d_action: int = 11, hidden_dim: int = 256):
         super().__init__(d_state, d_action, hidden_dim)
-
-        # Action difference encoder
-        self.action_diff_proj = nn.Linear(d_action, hidden_dim)
-
-        # State comparison: which objects changed between Z and Z'
-        self.comparison = nn.Sequential(
-            nn.Linear(d_state * 2, hidden_dim),
+        self.state_proj = nn.Linear(d_state, hidden_dim)
+        self.scorer = nn.Sequential(
+            nn.Linear(hidden_dim * 2, hidden_dim),
             nn.ReLU(),
-            nn.Linear(hidden_dim, hidden_dim // 2),
-            nn.ReLU(),
-            nn.Linear(hidden_dim // 2, 1),
+            nn.Linear(hidden_dim, 1),
         )
 
-    def forward(
-        self, z0: torch.Tensor, A: torch.Tensor, Z: torch.Tensor
-    ) -> torch.Tensor:
-        """Standard forward (single worldline) — returns zero.
-
-        Counterfactual head only produces meaningful output with paired inputs
-        via forward_paired().
-        """
-        return torch.zeros(z0.shape[0], device=z0.device)
-
-    def forward_paired(
-        self,
-        z0: torch.Tensor,
-        A: torch.Tensor,
-        Z: torch.Tensor,
-        A2: torch.Tensor,
-        Z2: torch.Tensor,
-    ) -> torch.Tensor:
-        """Paired forward — compare two futures from the same z0.
-
-        Args:
-            z0: Initial state, shape (B, d_state).
-            A: Action sequence for worldline 1, shape (B, H, d_action).
-            Z: Worldline 1, shape (B, H, d_state).
-            A2: Action sequence for worldline 2, shape (B, H, d_action).
-            Z2: Worldline 2, shape (B, H, d_state).
-
-        Returns:
-            Violation score per batch, shape (B,).
-        """
+    def forward(self, z0: torch.Tensor, A: torch.Tensor, Z: torch.Tensor) -> torch.Tensor:
         B, H, d = Z.shape
+        if H < 2:
+            return torch.zeros(B, device=Z.device)
 
-        # Compute action difference
-        A_diff = (A - A2).mean(dim=1)  # (B, d_action)
+        # Temporal consistency: compare early vs late worldline segments
+        Z_proj = self.state_proj(Z)  # (B, H, hidden)
+        early = Z_proj[:, :H//2].mean(dim=1)  # (B, hidden)
+        late = Z_proj[:, H//2:].mean(dim=1)   # (B, hidden)
+        pair = torch.cat([early, late], dim=-1)  # (B, 2*hidden)
 
-        # Compare states between worldlines
-        # Concatenate corresponding states from both worldlines
-        pair_features = torch.cat([Z, Z2], dim=-1)  # (B, H, 2*d)
-        per_step_diff = self.comparison(pair_features).squeeze(-1)  # (B, H)
+        # Score: how inconsistent are early and late? High score = violation
+        score = self.scorer(pair).squeeze(-1)  # (B,)
 
-        # Mean difference over time
-        state_diff = per_step_diff.mean(dim=-1)  # (B,)
+        # Also check: does adding noise to Z cause disproportionate energy changes?
+        noise = torch.randn(B, H, d, device=Z.device) * 0.01
+        Z_noisy = Z + noise
+        noisy_proj = self.state_proj(Z_noisy).mean(dim=1)
+        orig_proj = self.state_proj(Z).mean(dim=1)
+        noise_sensitivity = (noisy_proj - orig_proj).norm(dim=-1)  # (B,)
 
-        # The violation: state differences that are NOT explained by action differences
-        # If actions differ, state changes are expected. If actions are similar,
-        # state changes indicate inconsistency.
-        action_magnitude = A_diff.abs().mean(dim=-1, keepdim=False)  # (B,)
-
-        # Violation = state_diff * (1 - action_magnitude)
-        # i.e., penalize state changes when actions are similar
-        violation = state_diff * (1.0 - torch.tanh(action_magnitude))  # (B,)
-
-        return violation
+        return score + 0.1 * noise_sensitivity

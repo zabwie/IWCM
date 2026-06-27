@@ -35,8 +35,9 @@ rollout = RolloutModel(D_STATE, D_ACTION).to(device)
 print(f"IWCM: {model.count_parameters_str()} params")
 
 trainer = AC3Trainer(model, corruptor, oracle, device=device,
-    lr_world=1e-4, lr_corruptor=1e-4, num_mutations_per_sample=2,
-    top_k_hard=4, accept_low=0.3, accept_high=0.8)
+    lr_world=5e-5, lr_corruptor=5e-5, num_mutations_per_sample=4,
+    top_k_hard=4, accept_low=0.3, accept_high=0.8,
+    grid_size=GRID, horizon=H)
 
 # Load eval data
 cs = pickle.load(open("data/cross_surface.pkl", "rb"))

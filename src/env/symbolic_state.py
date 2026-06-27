@@ -182,3 +182,52 @@ def compare_symbolic_states(
             changes["door_state_changes"].append(door_id)
 
     return changes
+
+
+def symbolic_to_state_dict(ss: SymbolicState, goal: dict = None) -> dict:
+    gs = ss.grid_size
+
+    def _clamp(pos):
+        return (max(0, min(gs - 1, int(pos[0]))), max(0, min(gs - 1, int(pos[1]))))
+
+    objects = {}
+    for oid in ss.object_positions:
+        clamped_pos = _clamp(ss.object_positions[oid])
+        objects[oid] = {
+            "type": ss.object_types.get(oid, "unknown"),
+            "pos": list(clamped_pos),
+            "properties": ss.object_properties.get(oid, {}),
+        }
+    return {
+        "agent_pos": _clamp(ss.agent_pos),
+        "objects": objects,
+        "door_states": dict(ss.door_states),
+        "inventory": list(ss.inventory),
+        "grid_size": gs,
+        "goal": goal or {"type": "position", "pos": (0, 0)},
+    }
+
+
+def encode_symbolic_trajectory(
+    sym_traj, grid_size: int = 8, horizon: int = 25,
+) -> tuple:
+    """Encode a SymbolicTrajectory into (z0, A, Z) numpy arrays.
+
+    Returns tensors suitable for IWCM model input.
+    """
+    from .data import encode_state, encode_action
+    import numpy as np
+
+    states_dict = [symbolic_to_state_dict(s) for s in sym_traj.states]
+    if len(states_dict) < horizon + 1:
+        horizon = len(states_dict) - 1
+    if horizon < 1:
+        return None
+
+    z0 = encode_state(states_dict[0], grid_size)
+    A = np.zeros((horizon, 11), dtype=np.float32)
+    for i, a in enumerate(sym_traj.actions[:horizon]):
+        if 0 <= a < 11:
+            A[i, a] = 1.0
+    Z = np.array([encode_state(s, grid_size) for s in states_dict[1:horizon + 1]])
+    return z0, A, Z

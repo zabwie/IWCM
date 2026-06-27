@@ -16,7 +16,7 @@ from .constraints.local_transition import LocalTransitionHead
 from .constraints.invariant import InvariantHead
 from .constraints.effect import EffectHead
 from .constraints.counterfactual import CounterfactualHead
-from ..utils.base import BaseModel
+from src.utils.base import BaseModel
 
 
 class IWCMEnergy(BaseModel):

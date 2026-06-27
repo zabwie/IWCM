@@ -18,10 +18,9 @@ from .grid_world import OBJECT_TYPES
 
 @dataclass
 class GridObject:
-    """Base class for all grid world objects."""
     obj_id: str
-    obj_type: str
     pos: Tuple[int, int]
+    obj_type: str = "unknown"
     properties: Dict[str, Any] = field(default_factory=dict)
 
     @property
@@ -45,66 +44,37 @@ class GridObject:
         return self.properties.get("pushable", False)
 
     def to_dict(self) -> dict:
-        return {
-            "type": self.obj_type,
-            "pos": list(self.pos),
-            "properties": deepcopy(self.properties),
-        }
+        return {"type": self.obj_type, "pos": list(self.pos),
+                "properties": deepcopy(self.properties)}
 
     @classmethod
     def from_dict(cls, obj_id: str, d: dict) -> "GridObject":
-        return cls(
-            obj_id=obj_id,
-            obj_type=d["type"],
-            pos=tuple(d["pos"]),
-            properties=deepcopy(d.get("properties", {})),
-        )
+        return cls(obj_id=obj_id, pos=tuple(d["pos"]),
+                   obj_type=d.get("type", "unknown"),
+                   properties=deepcopy(d.get("properties", {})))
 
 
 @dataclass
 class Key(GridObject):
-    """A key object that can be picked up and used to open matching doors."""
     obj_type: str = "key"
 
     @classmethod
     def create(cls, obj_id: str, pos: Tuple[int, int]) -> "Key":
-        return cls(
-            obj_id=obj_id,
-            obj_type="key",
-            pos=pos,
-            properties={
-                "pickupable": True,
-                "pushable": False,
-                "passable": True,
-                "color": "yellow",
-            },
-        )
+        return cls(obj_id=obj_id, pos=pos, properties={"pickupable": True,
+                "pushable": False, "passable": True, "color": "yellow"})
 
 
 @dataclass
 class Door(GridObject):
-    """A door that blocks passage when closed, can be opened with matching key."""
     obj_type: str = "door"
     key_id: Optional[str] = None
     is_open: bool = False
 
     @classmethod
-    def create(
-        cls, obj_id: str, pos: Tuple[int, int], key_id: str
-    ) -> "Door":
-        return cls(
-            obj_id=obj_id,
-            obj_type="door",
-            pos=pos,
-            key_id=key_id,
-            properties={
-                "pickupable": False,
-                "pushable": False,
-                "passable": True,
-                "color": "red",
-                "openable": True,
-            },
-        )
+    def create(cls, obj_id: str, pos: Tuple[int, int], key_id: str) -> "Door":
+        return cls(obj_id=obj_id, pos=pos, key_id=key_id,
+                   properties={"pickupable": False, "pushable": False,
+                              "passable": True, "color": "red", "openable": True})
 
     def to_dict(self) -> dict:
         d = super().to_dict()
@@ -114,42 +84,22 @@ class Door(GridObject):
 
 @dataclass
 class Box(GridObject):
-    """A pushable box that blocks movement but can be pushed by the agent."""
     obj_type: str = "box"
 
     @classmethod
     def create(cls, obj_id: str, pos: Tuple[int, int]) -> "Box":
-        return cls(
-            obj_id=obj_id,
-            obj_type="box",
-            pos=pos,
-            properties={
-                "pickupable": False,
-                "pushable": True,
-                "passable": False,
-                "color": "brown",
-            },
-        )
+        return cls(obj_id=obj_id, pos=pos, properties={"pickupable": False,
+                "pushable": True, "passable": False, "color": "brown"})
 
 
 @dataclass
 class Occluder(GridObject):
-    """A static obstacle that blocks both movement and line of sight."""
     obj_type: str = "occluder"
 
     @classmethod
     def create(cls, obj_id: str, pos: Tuple[int, int]) -> "Occluder":
-        return cls(
-            obj_id=obj_id,
-            obj_type="occluder",
-            pos=pos,
-            properties={
-                "pickupable": False,
-                "pushable": False,
-                "passable": False,
-                "color": "gray",
-            },
-        )
+        return cls(obj_id=obj_id, pos=pos, properties={"pickupable": False,
+                "pushable": False, "passable": False, "color": "gray"})
 
 
 # ═══════════════════════════════════════════════════════════

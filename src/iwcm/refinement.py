@@ -12,7 +12,7 @@ import torch.nn as nn
 from typing import Tuple
 
 from .energy import IWCMEnergy
-from ..utils.base import BaseModel
+from src.utils.base import BaseModel
 
 
 class LearnedRefinementOperator(BaseModel):

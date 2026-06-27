@@ -3,7 +3,7 @@
 import torch
 import torch.nn as nn
 from typing import Dict, List, Tuple, Optional
-from ..utils.base import BaseModel
+from src.utils.base import BaseModel
 
 
 class ConstraintHead(BaseModel):

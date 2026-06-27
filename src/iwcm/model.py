@@ -16,7 +16,7 @@ from .energy import IWCMEnergy
 from .solver import GradientDescentSolver
 from .refinement import LearnedRefinementOperator, RefinementSolver
 from .planner import IWCMPlanner, GoalConstraint
-from ..utils.base import BaseModel
+from src.utils.base import BaseModel
 
 
 class IWCM(BaseModel):

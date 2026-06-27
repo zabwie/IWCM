@@ -348,8 +348,8 @@ def metric_ablation_table(
 
 class RolloutModel:
     def __init__(self, d_state: int, d_action: int = 11):
-        self.W_z = torch.randn(d_state, d_state) * 0.01
-        self.W_a = torch.randn(d_state, d_action) * 0.01
+        self.W_z = torch.eye(d_state) * 0.99
+        self.W_a = torch.randn(d_action, d_state) * 0.01
 
     def __call__(self, z_t, a_t):
         if a_t.dim() == 3 and a_t.shape[1] == 1: a_t = a_t.squeeze(1)

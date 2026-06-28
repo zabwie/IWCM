@@ -41,6 +41,13 @@ Thumbs.db
 # OpenCode
 .omo/
 
+# LaTeX build artifacts
+*.aux
+*.bbl
+*.blg
+*.out
+*.toc
+
 # Misc
 *.log
 *.swp

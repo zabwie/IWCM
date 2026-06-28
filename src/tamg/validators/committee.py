@@ -50,12 +50,12 @@ class V1LocalTransition(Validator):
         B, H, N, d = Z.shape
         if H < 2:
             return torch.zeros(B, device=Z.device)
-        # All adjacent pairs
-        z_t = Z[:, :-1].reshape(-1, N, d)    # (B*(H-1), N, d)
+        z_t = Z[:, :-1].reshape(-1, N, d)
         z_tp1 = Z[:, 1:].reshape(-1, N, d)
-        pair = torch.cat([z_t, z_tp1], dim=-1)  # (B*(H-1), N, 2d)
-        scores = torch.sigmoid(self.mlp(pair)).squeeze(-1)  # (B*(H-1), N)
-        return scores.mean(dim=(-2, -1)).reshape(B, H - 1).mean(dim=-1)  # (B,)
+        pair = torch.cat([z_t, z_tp1], dim=-1)
+        scores = torch.sigmoid(self.mlp(pair)).squeeze(-1)
+        scores = scores.reshape(B, H - 1, N).mean(dim=-1).mean(dim=-1)
+        return scores
 
 
 class V2CycleConsistency(Validator):
@@ -116,9 +116,9 @@ class V4InvariantStability(Validator):
         self.content_dim = content_dim
 
     def forward(self, Z, z0=None, A=None):
-        content = Z[..., :self.content_dim]  # (B, H, N, content_dim)
-        diff = (content[:, 1:] - content[:, :-1]).pow(2).mean(dim=(-3, -2, -1))  # (B, H-1)
-        stability = 1.0 / (1.0 + diff.mean(dim=-1))  # (B,) — higher = more stable
+        content = Z[..., :self.content_dim]
+        diff = (content[:, 1:] - content[:, :-1]).pow(2).mean(dim=(-2, -1))
+        stability = 1.0 / (1.0 + diff.mean(dim=-1))
         return stability
 
 
@@ -163,11 +163,10 @@ class V6Reachability(Validator):
         B, H, N, d = Z.shape
         if z0 is None:
             return torch.ones(B, device=Z.device)
-        # Check if any z_t is unreachable from z0
-        z0_exp = z0.unsqueeze(1).unsqueeze(2).expand(-1, H, N, d)
-        pair = torch.cat([z0_exp, Z], dim=-1)  # (B, H, N, 2d)
-        reach = self.classifier(pair).squeeze(-1)  # (B, H, N)
-        return reach.mean(dim=(-2, -1))  # (B,)
+        z0_exp = z0.unsqueeze(1).expand(-1, H, -1, -1)
+        pair = torch.cat([z0_exp, Z], dim=-1)
+        reach = self.classifier(pair).squeeze(-1)
+        return reach.mean(dim=(-2, -1))
 
 
 class V7AugmentationConsistency(Validator):

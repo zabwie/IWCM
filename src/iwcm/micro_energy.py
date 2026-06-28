@@ -38,7 +38,6 @@ class MicroIWCM(nn.Module):
         self.hidden = hidden
         self.num_slots = num_slots
 
-        # Shared projection (same as FusedIWCMEnergy)
         self.shared = nn.Linear(d_slot, hidden)
 
         # Head MLP: same weights as FusedIWCMEnergy.head

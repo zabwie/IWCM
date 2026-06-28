@@ -28,7 +28,7 @@
   Eliminate Autoregressive Drift}
 }
 
-\author{Zabdiel P{\'e}rez Mu{\~n}iz \\ \texttt{zabdielperez00@gmail.com}}
+\author{Zabdiel P{\'e}rez Mu{\~n}iz \\ Independent Researcher \\ \texttt{zabdielperez00@gmail.com}}
 \date{}
 
 \begin{document}
@@ -48,7 +48,7 @@ We present three key empirical results on DM Control cartpole at $H=100$:
   \item \textbf{Recovery from degraded rollouts.} Even when the rollout model is deliberately crippled (1$\times$32 hidden, 15 epochs, 50 trajectories), the warm-started IWCM solver recovers trajectories with lower energy than ground truth -- the solver acts as a constraint satisfaction filter that can \emph{pull drifted predictions back to validity}.
 \end{enumerate}
 
-These results prove Proposition~2 empirically: IWCM's structural independence from autoregressive chaining prevents drift regardless of rollout model quality. The framework is validated on real physics (MuJoCo cartpole) and a compositional grid world with 6 violation types, achieving 0.95+ AUROC cross-surface generalization. A complete solver implementation, training pipeline, and experiment reproduction scripts are provided.
+These results support Proposition~2 empirically: IWCM's structural independence from autoregressive chaining prevents autoregressive drift regardless of rollout model quality. The framework is validated on real physics (MuJoCo cartpole) and a compositional grid world with 6 violation types, achieving 0.95+ AUROC cross-surface generalization. A complete solver implementation, training pipeline, and experiment reproduction scripts are provided.
 \end{abstract}
 
 \tableofcontents
@@ -366,7 +366,7 @@ Step & E(true) & E(cold) & E(z0rep) & E(warm) & $\Delta$ cold & $\Delta$ z0rep &
 \begin{figure}[h]
 \centering
 \includegraphics[width=0.92\textwidth]{fig1_drift.pdf}
-\caption{Drift divergence at $H=100$ on DM Control cartpole. Cold-start random initialization fails catastrophically ($\Delta=+53$ at $H=100$, rising from $+45$ at step 10). Both $\zrep$ and warm-start find trajectories with energy \emph{below} ground truth and remain flat across all horizons ($\zrep$ at $\Delta \approx -2.66$, warm at $\Delta \approx -2.20$). The gap between cold and the two successful methods demonstrates that IWCM eliminates drift when properly initialized -- and $\zrep$ achieves this without any rollout model.}
+\caption{Drift divergence at $H=100$ on DM Control cartpole. Cold-start random initialization fails catastrophically ($\Delta=+53$ at $H=100$, rising from $+45$ at step 10). Both $\zrep$ and warm-start find trajectories with energy \emph{below} ground truth and remain flat across all horizons ($\zrep$ at $\Delta \approx -2.66$, warm at $\Delta \approx -2.20$). The gap between cold and the two successful methods demonstrates that IWCM eliminates autoregressive drift when properly initialized -- and $\zrep$ achieves this without any rollout model.}
 \label{fig:drift}
 \end{figure}
 
@@ -476,10 +476,10 @@ The solver is 0.13 ms per trajectory -- 1500$\times$ cheaper than DreamerV3's au
 
 \subsection{What Has Been Proven}
 
-We have proven six claims empirically:
+Six claims are supported empirically:
 
 \begin{enumerate}
-  \item \textbf{IWCM eliminates drift by construction.} The $\zrep$-initialized solver produces trajectories with energy flat across all horizons $H \in [10, 100]$, with zero slope. This is Proposition~\ref{prop:drift_elim} made empirical.
+  \item \textbf{IWCM eliminates autoregressive drift by construction.} The $\zrep$-initialized solver produces trajectories with energy flat across all horizons $H \in [10, 100]$, with zero slope. This supports Proposition~\ref{prop:drift_elim} empirically.
 
   \item \textbf{No rollout model is required.} The $\zrep$ initialization achieves lower energy than warm-start from a trained rollout model. The solver needs only $z_0$, $A$, and the energy function $E_\theta$.
 
@@ -489,7 +489,7 @@ We have proven six claims empirically:
 
   \item \textbf{The energy function transfers across horizons.} The IWCM trained on $H=25$ data works without modification at $H=100$. The fused pooling architecture is horizon-agnostic.
 
-  \item \textbf{Compositional corruption causes law learning.} The 0.952 AUROC on cross-surface generalization (Table~\ref{tab:cross_surface}) proves that IWCM learns causal invariants, not surface statistics.
+  \item \textbf{Compositional corruption causes law learning.} The 0.952 AUROC on cross-surface generalization (Table~\ref{tab:cross_surface}) demonstrates that IWCM learns causal invariants under the compositional corruption curriculum, rather than surface statistics.
 \end{enumerate}
 
 \subsection{Limitations}
@@ -519,7 +519,7 @@ The $\zrep$ initialization insight has a simple intuitive interpretation: to pla
 \label{sec:conclusion}
 % -------------------------------------------------------
 
-We have proven that IWCM eliminates autoregressive drift by replacing sequential generation with joint constraint satisfaction. The key empirical results:
+We have demonstrated that IWCM eliminates autoregressive error accumulation within the proposed optimization framework, by replacing sequential generation with joint constraint satisfaction. The key empirical results:
 
 \begin{itemize}
   \item \textbf{Flat energy across $H=10$ to $H=100$}: IWCM energy does not compound because each timestep is independently anchored to $z_0$. No chain, no drift.

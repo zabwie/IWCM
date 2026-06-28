@@ -436,7 +436,14 @@ The preceding experiments use oracle-structured slot encoders that extract groun
 
 \paragraph{Motivation.} Prior work on frozen vision backbones (ImageNet-pretrained ResNet) achieves at most 0.63 AUROC on the grid world corruption detection task. The frozen backbone encodes object category semantics rather than the physics-structured features (position, velocity, identity) required by the IWCM energy function. Training the backbone jointly with the energy function under the same margin loss also fails because the margin loss only sees corrupted-vs-valid at the trajectory level, providing insufficient spatial supervision.
 
-\paragraph{Architecture.} TAMGSlotEncoder (Figure~\ref{fig:tamg}) replaces the oracle with a learned CNN backbone (4 conv layers, 64-dim features) followed by learned slot queries with spatial anchoring. Each frame pair $(F_t, F_{t+1})$ produces an $(N, 19)$ structured slot tensor:
+\paragraph{Architecture.} TAMGSlotEncoder (Figure~\ref{fig:tamg}) replaces the oracle with a learned CNN backbone (4 conv layers, 64-dim features) followed by learned slot queries with spatial anchoring.
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.85\textwidth]{TAMGSlotEncoder.png}
+\caption{TAMGSlotEncoder architecture. Frame pairs $(F_t, F_{t+1})$ are encoded by a shared CNN backbone (4 conv layers, stride 2) into a $4\times4$ feature map. Learned slot queries with spatial anchoring bias attend over spatial positions, producing per-slot position, velocity, identity, type, and misc outputs. These are concatenated to 19-dim slots and stacked over time into a worldline $Z$, which feeds the unchanged FusedIWCMEnergy. Four self-supervised losses train the encoder without labels.}
+\label{fig:tamg}
+\end{figure} Each frame pair $(F_t, F_{t+1})$ produces an $(N, 19)$ structured slot tensor:
 
 \begin{equation}
 \text{slot}_t = [\underbrace{x_t, y_t}_{\text{position}} \mid \underbrace{v_{x,t}, v_{y,t}}_{\text{velocity}} \mid \underbrace{e_t}_{\text{identity (8d)}} \mid \underbrace{c_t}_{\text{type (4d)}} \mid \underbrace{m_t}_{\text{misc (3d)}}]

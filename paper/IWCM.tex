@@ -5,6 +5,7 @@
 \usepackage{hyperref}
 \usepackage{graphicx}
 \usepackage{booktabs}
+\usepackage{tabularx}
 \usepackage{algorithm}
 \usepackage{algorithmic}
 \usepackage{xcolor}
@@ -646,22 +647,22 @@ The IWCM energy function evaluates an entire 100-step worldline in a single feed
 
 We then amortize the solver into a 76K-parameter feed-forward network (per-timestep MLP) that matches K20 energy across three continuous-control domains at 92--108~$\mu$s per trajectory -- a 100--500$\times$ speedup over the exact solver depending on step count. The amortized solver is trained by distillation: the exact K20 solver generates ground-truth trajectories for 30 training rollouts, and the network learns to predict $Z_{\text{solved}}$ from $(z_0, A)$ directly. The speedup comes entirely from removing inference-time autograd, not from lower precision (fp16/bf16 fail with $|\Delta E| > 2.0$).
 
-\begin{table}[h]
+\begin{table}[t]
 \centering
-\caption{Measured runtime at $H=100$ on a single RTX 3060 (fp32). DreamerV3 RSSM timing refers to recurrent RSSM rollout~\citep{hafner2023dreamerv3}.}
+\caption{Measured runtime at $H=100$ on a single RTX 3060 (fp32).}
 \label{tab:speed}
-\begin{tabular}{@{}lrl@{}}
+\begin{tabularx}{0.85\textwidth}{l r X}
 \toprule
 Operation & Time & Notes \\
 \midrule
 IWCM energy forward & 0.16 ms & Single forward pass \\
-IWCM exact solver, $K=100,\ \alpha=0.01$ & 51.2 ms & Full gradient solver (paper original) \\
-IWCM exact solver, $K=20,\ \alpha=0.08$ & 10.9 ms & Tuned solver, $|\Delta E| < 0.004$ \\
+IWCM exact solver, $K=100$, $\alpha=0.01$ & 51.2 ms & Full gradient solver \\
+IWCM exact solver, $K=20$, $\alpha=0.08$ & 10.9 ms & Tuned solver, $|\Delta E| < 0.004$ \\
 Amortized IWCM solver & 0.092--0.108 ms & Learned one-pass, $|\Delta E| < 0.002$ vs K20 \\
 Rollout MLP (100 steps) & 0.008 ms & Autoregressive MLP forward passes \\
 DreamerV3 RSSM (100 steps) & $\sim$200 ms & 100 autoregressive GRU steps \\
 \bottomrule
-\end{tabular}
+\end{tabularx}
 \end{table}
 
 Table~\ref{tab:amortized_domains} summarizes the amortized solver's performance across three continuous-control domains with different dynamics and action dimensions. The solver generalizes across all tested horizons ($H=10$ to $H=200$) without retraining, and in several cases produces lower trajectory MSE than the exact K20 solver on short horizons.

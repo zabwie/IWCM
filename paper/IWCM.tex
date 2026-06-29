@@ -648,7 +648,7 @@ We then amortize the solver into a 76K-parameter feed-forward network (per-times
 
 \begin{table}[h]
 \centering
-\caption{Measured runtime at $H=100$ on a single RTX 3060 (fp32).}
+\caption{Measured runtime at $H=100$ on a single RTX 3060 (fp32). DreamerV3 RSSM timing refers to recurrent RSSM rollout~\citep{hafner2023dreamerv3}.}
 \label{tab:speed}
 \begin{tabular}{@{}lrl@{}}
 \toprule
@@ -659,7 +659,7 @@ IWCM exact solver, $K=100,\ \alpha=0.01$ & 51.2 ms & Full gradient solver (paper
 IWCM exact solver, $K=20,\ \alpha=0.08$ & 10.9 ms & Tuned solver, $|\Delta E| < 0.004$ \\
 Amortized IWCM solver & 0.092--0.108 ms & Learned one-pass, $|\Delta E| < 0.002$ vs K20 \\
 Rollout MLP (100 steps) & 0.008 ms & Autoregressive MLP forward passes \\
-DreamerV3 RSSM (100 steps) & $\sim$200 ms & 100 autoregressive GRU steps \citep{hafner2023dreamerv3} \\
+DreamerV3 RSSM (100 steps) & $\sim$200 ms & 100 autoregressive GRU steps \\
 \bottomrule
 \end{tabular}
 \end{table}

@@ -19,7 +19,7 @@ GRID, D_STATE, D_ACTION, H = 8, 8*8*4, 11, 25
 print(f"Device: {device}")
 
 # Load training data
-with open("data/trajectories_all_h25_n5000.pkl", "rb") as f:
+with open("data/trajectories.pkl", "rb") as f:
     dataset = pickle.load(f)
 print(f"Train: {len(dataset)} trajectories")
 dataloader = torch.utils.data.DataLoader(dataset, batch_size=16, shuffle=True, num_workers=2, drop_last=True)

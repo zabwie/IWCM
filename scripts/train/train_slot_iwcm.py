@@ -13,7 +13,7 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 N, d, H = MAX_OBJECTS, ORACLE_SLOT_DIM, 25
 print(f"Device: {device}, slots={N}, dim={d}")
 
-with open("data/oracle_slot_trajs_v2.pkl", "rb") as f:
+with open("data/slots_oracle.pkl", "rb") as f:
     data = pickle.load(f)
 
 def to_4d(trajs):

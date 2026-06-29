@@ -18,7 +18,7 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 print(f"Device: {device}")
 
 # Load data
-data_path = "data/trajectories_key_door_simple_h25_n5000.pkl"
+data_path = "data/trajectories_simple.pkl"
 with open(data_path, "rb") as f:
     dataset = pickle.load(f)
 print(f"Dataset: {len(dataset)} trajectories")

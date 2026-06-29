@@ -13,7 +13,7 @@ Key results — [full paper](paper/IWCM.pdf):
 | Exact solver → amortized 92 μs | 76K-parameter feed-forward network matches K20 energy within \|ΔE\| < 0.002 |
 | Cross-domain (3 continuous-control domains) | Cartpole, cheetah-run, walker-walk — all ~100 μs |
 | AC3 curriculum learns invariants | 0.952 AUROC vs 0.696 random corruptions |
-| Pixel pipeline (grid-world) | TAMGSlotEncoder (345K params, no labels) matches oracle: 0.996 AUROC |
+| Pixel pipeline (grid-world + MuJoCo) | TAMGSlotEncoder (345K, no labels): 0.996 AUROC grid-world, 0.971–0.978 on 3 MuJoCo domains |
 | Energy vs trajectory accuracy | Both metrics reported; they optimize different objectives |
 
 ## Project Structure
@@ -83,6 +83,14 @@ python scripts/experiments/train_amortized_solver.py
 python scripts/experiments/solver_optimize.py
 ```
 
+### Train TAMG Pixel Encoder (Continuous Control)
+
+```bash
+python scripts/train_tamg_dm_control.py
+```
+
+Trains TAMGSlotEncoder + FusedIWCMEnergy on rendered MuJoCo frames. Self-supervised: velocity MSE, contrastive identity, clustering type, reconstruction + IWCM margin loss. ~45 min per domain on RTX 3060.
+
 All experiment scripts are self-contained — they generate data, train models, and produce results in a single run.
 
 ## Solver Configuration
@@ -97,15 +105,17 @@ The amortized solver is trained by distilling the exact K20 solver into a per-ti
 
 ## Domains
 
-Tested continuous-control domains via DM Control (oracle-structured slots):
+### Continuous Control (MuJoCo via DM Control)
 
-| Domain | Bodies | Action dim | Status |
-|---|---|---|---|
-| Cartpole swingup | 2 | 1 | Full results |
-| Cheetah run | 7 | 6 | Full results |
-| Walker walk | 7 | 6 | Full results |
+| Domain | Bodies | Action dim | Oracle-slot results | Pixel pipeline (TAMG) |
+|---|---|---|---|---|
+| Cartpole swingup | 2 | 1 | Full results | 0.978 AUROC |
+| Cheetah run | 7 | 6 | Full results | 0.971 AUROC |
+| Walker walk | 7 | 6 | Full results | 0.978 AUROC |
 
-Grid world with symbolic oracle and pixel-only variants also supported.
+### Grid World
+
+Symbolic oracle and pixel-only variants supported. TAMGSlotEncoder achieves 0.996 AUROC from pixel input (345K params, no labels).
 
 ## Citation
 

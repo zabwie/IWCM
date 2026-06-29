@@ -61,9 +61,10 @@ class TAMGSlotEncoder(nn.Module):
 
         # ── Per-slot structured heads ───────────────────────────────────
         # Velocity: concat(slot_feat_t, slot_feat_t+1) → (vx, vy)
+        # ponytail: tanh output keeps predictions bounded to [-1, 1], matching continuous-control displacement scale
         self.vel_head = nn.Sequential(
             nn.Linear(d_feat * 2, d_feat), nn.ReLU(),
-            nn.Linear(d_feat, 2),
+            nn.Linear(d_feat, 2), nn.Tanh(),
         )
         # Identity: slot_feat → 8-dim embedding (contrastive)
         self.id_head = nn.Sequential(
@@ -131,6 +132,8 @@ class TAMGSlotEncoder(nn.Module):
 
         # Slot features = attention-weighted CNN features
         feat = torch.einsum('bkn,bnc->bkc', attn, feat_flat)   # (B, N, C)
+        # ponytail: LayerNorm prevents unbounded feature growth during continuous-control training
+        feat = F.layer_norm(feat, feat.shape[-1:])
 
         return pos, feat, attn
 

@@ -4,7 +4,9 @@
 
 Learned world models based on autoregressive rollout suffer from a structural failure: prediction errors compound over time because each predicted state feeds into the next prediction. IWCM reframes world modeling as full-trajectory constraint satisfaction — the energy function scores entire future trajectories jointly, and the solver finds a valid worldline by gradient descent rather than step-by-step generation.
 
-Key results — [full paper](paper/IWCM.pdf):
+**Paper:** [10.5281/zenodo.21041329](https://zenodo.org/records/21041329) — [full PDF](paper/IWCM.pdf)
+
+Key results:
 
 | Claim | Evidence |
 |---|---|

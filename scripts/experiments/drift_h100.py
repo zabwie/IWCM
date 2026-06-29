@@ -11,7 +11,7 @@ from src.env.scenarios import generate_trajectory, Scenario, PREDEFINED_SCENARIO
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 N, d_slot, H, d_a = 8, 19, 100, 11
 
-spec = importlib.util.spec_from_file_location('ose', BASE + '/src/encoder/oracle_slot_encoder.py')
+spec = importlib.util.spec_from_file_location('ose', BASE + '/src/env/oracle_slot_encoder.py')
 ose = importlib.util.module_from_spec(spec); spec.loader.exec_module(ose)
 trajs = []
 for name in PREDEFINED_SCENARIOS:

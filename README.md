@@ -22,62 +22,90 @@ The framework has three complementary components:
 
 ```
 ICWM/
-├── paper/                  # LaTeX source and PDF
-├── src/                    # Source code
-│   ├── env/                # Grid world environment
-│   │   ├── grid_world.py   # Core environment
-│   │   ├── objects.py      # Key/Door/Box/Occluder
-│   │   ├── actions.py      # Action definitions
-│   │   ├── renderer.py     # Video frame renderer
-│   │   ├── scenarios.py    # Predefined scenarios
-│   │   ├── data.py         # PyTorch datasets
-│   │   └── symbolic_state.py  # Oracle state access
-│   ├── iwcm/               # IWCM core
-│   │   ├── constraints/    # 5 constraint heads
-│   │   ├── energy.py       # Energy function E_θ
-│   │   ├── solver.py       # Gradient descent solver
-│   │   ├── refinement.py   # Learned refinement Φ_θ
-│   │   ├── planner.py      # MAP inference planner
-│   │   └── model.py        # Full IWCM wrapper
-│   ├── ac3/                # AC3 adversarial training
-│   │   ├── mutations/      # 7 symbolic mutation types
-│   │   ├── corruptor.py    # Learned corruptor C_φ
-│   │   ├── hardness.py     # Hardness scorer + curriculum
-│   │   ├── oracle.py       # Symbolic constraint oracle
-│   │   └── trainer.py      # AC3 training loop (Alg. 1)
-│   ├── tamg/               # TAMG self-supervised
-│   │   ├── operators.py    # Learned operator basis
-│   │   ├── mutations/      # 5 continuous mutation families
-│   │   ├── corruptor.py    # Manifold-preserving corruptor
-│   │   ├── validators/     # 8 validator committee
-│   │   ├── disagreement.py # Disagreement score D(τ')
-│   │   └── trainer.py      # TAMG training loop (Alg. 2)
-│   ├── encoder/            # Video encoder (Exp 2)
-│   │   ├── video_encoder.py   # CNN + slot attention
-│   │   ├── slot_attention.py  # Iterative slot attention
-│   │   ├── decoder.py         # Spatial broadcast decoder
-│   │   └── representation.py  # Content/pose/hidden decomposition
-│   ├── metrics/            # 9 evaluation metrics
+├── paper/                    # LaTeX source, PDF, and figures
+├── src/                      # Source code
+│   ├── env/                  # Environments and encoders
+│   │   ├── grid_world.py     # Grid world environment
+│   │   ├── objects.py        # Key/Door/Box/Occluder definitions
+│   │   ├── actions.py        # Action definitions
+│   │   ├── renderer.py       # Video frame renderer
+│   │   ├── scenarios.py      # Predefined scenarios
+│   │   ├── data.py           # PyTorch datasets
+│   │   ├── symbolic_state.py # Oracle state access / symbolic encoding
+│   │   ├── oracle_slot_encoder.py  # Oracle slot encoder (19-dim per slot)
+│   │   ├── dm_control_wrapper.py   # DM Control environment wrapper
+│   │   └── dm_control_encoder.py   # DM Control oracle slot encoder
+│   ├── iwcm/                 # IWCM core
+│   │   ├── energy.py         # 5-head IWCM energy function E_θ
+│   │   ├── fused_energy.py   # Fused pooling IWCM (52K params, main architecture)
+│   │   ├── slot_energy.py    # Slot-aware 5-head energy function
+│   │   ├── solver.py         # Gradient descent worldline solver
+│   │   ├── planner.py        # MAP inference planner
+│   │   ├── refinement.py     # Learned refinement operator Φ_θ
+│   │   ├── model.py          # Full IWCM wrapper
+│   │   ├── micro_energy.py   # Latency-optimized MicroIWCM (Triton + CUDA Graph)
+│   │   ├── triton_ops.py     # Custom Triton CUDA kernels
+│   │   ├── constraints/      # 5 constraint head implementations
+│   │   └── variants/         # Architecture variants (conv1d, pooling_v2, spatial)
+│   ├── ac3/                  # AC3 adversarial training
+│   │   ├── mutations/        # 7 symbolic mutation types (grammar.py)
+│   │   ├── corruptor.py      # Learned corruptor C_φ
+│   │   ├── hardness.py       # Hardness scorer + curriculum
+│   │   ├── oracle.py         # Symbolic constraint oracle
+│   │   └── trainer.py        # AC3 training loop (Alg. 1)
+│   ├── tamg/                 # TAMG self-supervised
+│   │   ├── operators.py      # Learned operator basis
+│   │   ├── slot_encoder.py   # TAMGSlotEncoder (pixels → 19-dim slots)
+│   │   ├── mutations/        # 6 continuous mutation families
+│   │   ├── corruptor.py      # Manifold-preserving corruptor
+│   │   ├── validators/       # 8-member validator committee
+│   │   ├── disagreement.py   # Disagreement score D(τ')
+│   │   └── trainer.py        # TAMG training loop (Alg. 2)
+│   ├── encoder/              # Video encoder (Exp 2)
+│   │   ├── video_encoder.py  # CNN + slot attention
+│   │   ├── slot_attention.py # Iterative slot attention (with spatial anchoring)
+│   │   ├── decoder.py        # Spatial broadcast decoder
+│   │   ├── representation.py # Content/pose/hidden decomposition
+│   │   ├── slot_permanence.py # Temporal slot identity tracking
+│   │   ├── slot_transition.py # Predicted next-frame slot init
+│   │   ├── slot_structure.py # Weak oracle supervision heads
+│   │   └── spatial_anchor.py # Spatial anchoring utilities
+│   ├── metrics/              # 9 evaluation metrics
 │   │   └── evaluation.py
-│   └── utils/              # Utilities
-│       ├── config.py       # Hydra/OmegaConf config
-│       ├── seed.py         # Reproducibility
-│       ├── logging.py      # Wandb + TensorBoard
-│       ├── tensors.py      # Worldline slab ops
-│       └── base.py         # Base model class
-├── configs/                # YAML configuration
+│   ├── utils/                # Utilities
+│   │   ├── config.py         # Hydra/OmegaConf config
+│   │   ├── seed.py           # Reproducibility
+│   │   ├── logging.py        # Wandb + TensorBoard
+│   │   ├── tensors.py        # Worldline slab ops
+│   │   └── base.py           # Base model class
+│   ├── tamg_simple.py        # Simplified TAMG training harness
+│   └── pixel_slots.py        # Pixel-based slot utilities
+├── configs/                  # YAML configuration
 │   ├── default.yaml
-│   ├── exp1/               # Experiment 1 configs
-│   └── exp2/               # Experiment 2 configs
-├── experiments/            # Experiment runners
-├── scripts/                # CLI scripts
-│   ├── generate_data.py    # Data generation
-│   ├── run_experiment.py   # Unified experiment runner
-│   └── evaluate.py         # Model evaluation
-├── tests/                  # Test suites
-├── data/                   # Generated data
-├── outputs/                # Checkpoints, logs
-├── notebooks/              # Analysis notebooks
+│   ├── exp1/                 # Experiment 1 configs
+│   └── exp2/                 # Experiment 2 configs
+├── experiments/              # Experiment runner stubs
+│   ├── exp1_symbolic/
+│   ├── exp2_video/
+│   └── analysis/
+├── scripts/                  # CLI scripts (organized by function)
+│   ├── experiments/          # Paper experiment scripts (drift, recovery, etc.)
+│   ├── train/                # Training scripts
+│   ├── data/                 # Data generation scripts
+│   ├── diagnostics/          # Diagnostic and ablation scripts
+│   ├── bench/                # Benchmark scripts
+│   ├── stage2/               # Stage 2 (slot permanence) scripts
+│   ├── exp1/                 # Experiment 1 analysis scripts
+│   ├── dm_control/           # DM Control training scripts
+│   ├── run_experiment.py     # Unified experiment runner
+│   ├── evaluate.py           # Model evaluation
+│   ├── generate_data.py      # Data generation
+│   └── ...                   # Additional analysis scripts
+├── tests/                    # Test suites
+├── data/                     # Generated trajectory datasets
+├── outputs/                  # Checkpoints, logs
+├── notebooks/                # Jupyter notebooks (empty)
+├── FINDINGS.md               # Research findings and results
 ├── pyproject.toml
 └── README.md
 ```

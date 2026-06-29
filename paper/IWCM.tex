@@ -40,17 +40,21 @@ Learned world models based on autoregressive rollout suffer from a structural fa
 
 We introduce the Implicit Worldline Constraint Model (IWCM), a world model whose primary object is not a transition function but a differentiable energy function over entire latent worldlines. Planning becomes joint constraint satisfaction over all future states simultaneously, breaking the autoregressive dependency chain and eliminating structural drift by construction.
 
-We present three key empirical results on DM Control cartpole at $H=100$:
+We present five key empirical results:
 
 \begin{enumerate}
-  \item \textbf{Drift elimination.} An IWCM solver initialized by replicating the observed state $z_0$ across all timesteps finds trajectories with energy \emph{below} ground truth ($\Delta=-2.66$) and flat across all horizons, while a rollout baseline compounds to $\Delta=+53.19$ at $H=100$.
+  \item \textbf{Cross-surface law generalization.} On a compositional grid world with 6 violation types (delete, duplicate, reverse, swap, teleport, transform), the IWCM energy function achieves 0.952 AUROC under the AC3 compositional corruption curriculum, versus 0.696 with random corruptions -- a +0.256 improvement that demonstrates genuine causal law learning rather than surface pattern memorization.
+
+  \item \textbf{Drift elimination on physics.} On DM Control cartpole at $H=100$, an IWCM solver initialized by replicating the observed state $z_0$ across all timesteps finds trajectories with energy \emph{below} ground truth ($\Delta=-2.66$) and flat across all horizons, while a rollout baseline compounds to $\Delta=+53.19$ at $H=100$.
+
   \item \textbf{No rollout model required.} The $\zrep$ initialization achieves strictly lower energy than warm-starting from a learned rollout model ($-3.62$ vs $-3.16$ at $H=100$), eliminating the warm-start dependency.
-  \item \textbf{Recovery from degraded rollouts.} Even when the rollout model is deliberately crippled (1$\times$32 hidden, 15 epochs, 50 trajectories), the warm-started IWCM solver recovers trajectories with lower energy than ground truth -- the solver acts as a constraint satisfaction filter that can \emph{pull drifted predictions back to validity}.
+
+  \item \textbf{Recovery from degraded rollouts.} Even when the rollout model is deliberately crippled (95$\times$ higher MSE), the warm-started IWCM solver recovers trajectories with energy below ground truth -- the solver acts as a constraint satisfaction filter that pulls drifted predictions back to validity.
+
+  \item \textbf{Pixel pipeline: oracle dependency eliminated.} A learned visual encoder (TAMGSlotEncoder, 345K parameters) trained via structured self-supervision -- velocity MSE, contrastive identity tracking, online clustering, and reconstruction -- produces slot representations from raw pixels that match oracle-slot performance at 0.996 AUROC, with flat energy across $10\times$ horizon increase. This replaces the symbolic oracle with a lightweight CNN trained in 30 minutes on a single RTX 3060, requiring no labels and no simulator state access at inference time.
 \end{enumerate}
 
-These results support Proposition~2 empirically: IWCM's structural independence from autoregressive chaining prevents autoregressive drift regardless of rollout model quality. The framework is validated on real physics (MuJoCo cartpole) and a compositional grid world with 6 violation types, achieving 0.95+ AUROC cross-surface generalization.
-
-Additionally, we demonstrate that the symbolic oracle dependency in prior IWCM work can be eliminated entirely. A learned visual encoder (TAMGSlotEncoder, 345K parameters) trained via structured self-supervision -- velocity MSE, contrastive identity tracking, online clustering, and reconstruction -- produces slot representations from raw pixels that match oracle-slot performance at 0.996 AUROC, with flat energy across $10\times$ horizon increase. This replaces the oracle with a lightweight CNN trained in 30 minutes on a single RTX 3060, requiring no labels and no simulator state access at inference time. All code, training pipelines, and reproduction scripts are provided.
+All code, training pipelines, and reproduction scripts are provided at \url{https://github.com/zabwie/IWCM}.
 \end{abstract}
 
 \tableofcontents
@@ -87,6 +91,13 @@ This assumption is similarly mistaken. A world model may instead represent \emph
 A second, deeper problem concerns what is learned. Neural networks trained by gradient descent are pushed toward $\hat{y} \approx \mathbb{E}[y \mid x]$, the conditional average, not the underlying causal structure. A world model trained on next-state prediction learns \emph{what usually happens}, not \emph{what must remain true}. These diverge under long-horizon planning, novel configurations, and counterfactual queries.
 
 This paper addresses both problems. We propose IWCM to eliminate structural drift and demonstrate it empirically on real physics, with a \textbf{z0-replication initialization} that requires no rollout model, and a recovery property that pulls drifted predictions back to causal validity.
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.95\textwidth]{HorizontalArchitecture.png}
+\caption{Overall IWCM framework architecture. Video frames are encoded by the TAMG encoder (CNN backbone + slot attention) into structured object-centric slots with 19-dim features (position, velocity, identity, type, misc). These are stacked across timesteps into a worldline tensor $Z \in \mathbb{R}^{H \times N \times 19}$ and scored by the IWCM energy function, which outputs a scalar constraint-violation energy. The energy is trained to be low for physically valid trajectories and high for corrupted ones.}
+\label{fig:architecture}
+\end{figure}
 
 % -------------------------------------------------------
 \section{Background and Related Work}
@@ -178,6 +189,13 @@ No recurrence. No attention. Single projection. Fused 3-head scorer. Temporal po
 \paragraph{Why temporal pooling beats recurrence.} Corruptions (teleport, swap, duplicate) create sharp temporal discontinuities. A bidirectional GRU smooths these out. Mean/max/std pooling preserves them directly. The std channel captures variance that GRU compresses. Simpler architecture, better signal.
 
 \paragraph{Max pooling is structurally necessary.} Identity violations manifest as a single anomalous timestep. Max pooling answers ``did ANY timestep look wrong?'' -- a non-differentiable operation that no linear projection with GELU can approximate. Removing max pooling collapses identity detection from 0.880 to 0.284 regardless of hidden layer size.
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.88\textwidth]{HorizontalIWCM.png}
+\caption{IWCM constraint satisfaction architecture. The energy function $E_\theta(z_0, A, Z)$ evaluates the entire trajectory $(z_0, z_1, \ldots, z_H)$ simultaneously through learned physical constraints. All states are initialized as $z_0$ (z0-replication) and refined via gradient descent, avoiding the autoregressive chain that causes drift in rollout-based world models.}
+\label{fig:iwcm_arch}
+\end{figure}
 
 \subsection{The Solver and Initialization}
 
@@ -281,6 +299,13 @@ AC3 generates \emph{near-miss} corrupted worlds -- trajectories that are surface
 Each corrupted trajectory is generated by randomly sampling values along each axis -- for example, ``delete a key at mid-timestep while it is carried'' or ``teleport a box in early timesteps while visible.'' The full grid spans $2 \times 3 \times 6 \times 3 \times 4 = 432$ distinct corruption configurations, with systematic coverage across all combinations.
 
 \paragraph{Why compositionality matters.} A model trained on random corruptions can learn simple heuristics: ``deleted objects cause high energy'' or ``teleported objects cause high energy.'' But these heuristics fail on held-out corruption types because they memorize the surface form rather than the underlying law. Compositional training forces the model to learn \emph{the invariants that define validity} -- the physics laws themselves -- because no single surface feature correlates with the valid/invalid label across all grid cells.
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.88\textwidth]{AC3.png}
+\caption{AC3 compositional corruption grid. Six violation types (delete, duplicate, swap, teleport, reverse, transform) are applied across multiple context axes (object type, context, time gap). The grid ensures that no single axis predicts the valid/invalid label, forcing the model to learn the underlying causal laws. Below: a valid trajectory where a key is visible and interacts with a box, vs a corrupted trajectory with teleportation, occlusion, and late appearance.}
+\label{fig:ac3}
+\end{figure}
 
 \paragraph{Training procedure.} At each training step, AC3 generates corrupted trajectories by applying symbolic mutations to valid training trajectories. The mutations are parameterized by the corruption grid axes above. The IWCM energy function is trained with a margin ranking loss:
 
@@ -473,7 +498,7 @@ The preceding experiments use oracle-structured slot encoders that extract groun
 
 \begin{figure}[h]
 \centering
-\includegraphics[width=0.85\textwidth]{TAMGSlotEncoder.png}
+\includegraphics[width=0.78\textwidth]{TAMGSlotEncoder.png}
 \caption{TAMGSlotEncoder architecture. Frame pairs $(F_t, F_{t+1})$ are encoded by a shared CNN backbone (4 conv layers, stride 2) into a $4\times4$ feature map. Learned slot queries with spatial anchoring bias attend over spatial positions, producing per-slot position, velocity, identity, type, and misc outputs. These are concatenated to 19-dim slots and stacked over time into a worldline $Z$, which feeds the unchanged FusedIWCMEnergy. Four self-supervised losses train the encoder without labels.}
 \label{fig:tamg}
 \end{figure} Each frame pair $(F_t, F_{t+1})$ produces an $(N, 19)$ structured slot tensor:
@@ -554,7 +579,7 @@ Slope vs $\log H$ & 0.0015 & & \\
 \begin{enumerate}
   \item \textbf{Oracle dependency is broken.} TAMG achieves 0.996 AUROC on 200 trajectories, matching the 0.952 AUROC of the oracle-slot upper bound. Across 5 random seeds, performance is stable at $\geq 0.996$.
   
-  \item \textbf{Frozen backbones fail for structural reasons.} The contrastive identity loss and velocity MSE provide structured supervision that is absent from image classification pretraining. Frozen ImageNet backbones encode ``what object is this'' rather than ``where is this object and how fast is it moving.'' The TAMG backbone is pulled toward physics structure by design.
+  \item \textbf{TAMG is 30$\times$ smaller and more accurate than frozen backbones.} TAMGSlotEncoder (345K params) achieves 0.996 AUROC, while frozen ResNet-18 (11M params, 30$\times$ larger) achieves only 0.63. This is not a scaling issue -- it is an architectural one: TAMG's structured self-supervision (velocity, identity, type) pulls the backbone toward physics features, while ImageNet pretraining encodes object semantics irrelevant to causal constraint learning.
   
   \item \textbf{Flat energy survives the pixel pipeline.} TAMG-encoded slots produce energy $-1.695$ at $H=10$ and $-1.692$ at $H=100$ ($\Delta = +0.003$), with slope 0.0015 against $\log H$. The drift elimination property of IWCM is preserved when slots are computed from pixels rather than simulator internals.
   
@@ -635,7 +660,7 @@ Six claims are supported empirically:
 
 \paragraph{Random initialization for action optimization.} The solver optimizes $Z$ given fixed $A$. Full planning requires optimizing over $A$ as well, which currently uses random shooting. The random initialization problem may resurface for action optimization even if state optimization is solved.
 
-\paragraph{Generalization to video.} The TAMGSlotEncoder replaces the oracle in the grid world setting (Section~\ref{sec:exp_tamg}), but the DM Control experiments still use oracle-structured features. Extending TAMG to continuous control domains (cartpole, walker, quadruped) requires adapting the visual encoder to rendered MuJoCo frames or real camera input, which remains future work. The structured self-supervision framework (velocity, identity, type) is domain-agnostic and should transfer directly.
+\paragraph{Generalization to video.} The TAMGSlotEncoder replaces the oracle in the grid world setting (Section~\ref{sec:exp_tamg}), but the DM Control experiments still use oracle-structured features. Extending TAMG to continuous control domains (cartpole, walker, quadruped) requires adapting the visual encoder to rendered MuJoCo frames or real camera input. The structured self-supervision framework (velocity, identity, type) is domain-agnostic and should transfer directly. We consider this the highest-priority next step and expect to complete the continuous-control TAMG integration within two weeks of public release, using the existing DM Control wrapper and encoder infrastructure.
 
 \paragraph{Baseline strength.} DreamerV3 is the relevant baseline but requires retraining for our environments. The reported DreamerV3 costs are architectural estimates ($\sim$200 ms for 100 RSSM steps) and may not reflect an optimized implementation.
 
@@ -706,8 +731,8 @@ Max episode steps & 300 \\
 Action repeat & 1 \\
 IWCM architecture & FusedIWCMEnergy (52K params) \\
 IWCM hidden dim & 128 \\
-IWCM slot dim & 19 (ORACLE\_SLOT\_DIM) \\
-IWCM num slots & 8 (MAX\_BODIES) \\
+IWCM slot dim & 19 \\
+IWCM num slots & 8 \\
 IWCM training epochs & 150 \\
 IWCM batch size & 64 \\
 IWCM learning rate & $1\times 10^{-3}$ \\
@@ -815,41 +840,5 @@ Step & $\Delta$ cold & $\Delta$ z0rep & $\Delta$ warm \\
 \bottomrule
 \end{tabular}
 \end{table}
-
-\section{Code Release}
-\label{app:code}
-
-The complete codebase is organized as follows:
-
-\begin{verbatim}
-src/
-  iwcm/
-    energy.py              # 5-head IWCM energy function
-    fused_energy.py        # Fused pooling IWCM (52K params)
-    solver.py              # Gradient descent solver
-    planner.py             # MAP inference planner
-    refinement.py          # Learned refinement operator
-    slot_energy.py         # Slot-aware 5-head energy
-    constraints/           # 5 constraint head implementations
-    variants/              # Architecture variants
-  env/
-    grid_world.py          # Grid world environment
-    dm_control_wrapper.py  # DM Control wrapper
-    dm_control_encoder.py  # Oracle-structured slot encoder
-    scenarios.py           # Predefined scenarios
-    data.py                # Dataset classes
-    oracle_slot_encoder.py # Oracle slot encoder
-  encoder/
-    slot_attention.py      # Slot attention for video
-    video_encoder.py       # CNN + slot attention
-
-scripts/experiments/
-  dm_drift.py              # DM Control drift comparison (Fig 1)
-  dm_recovery.py           # Degraded rollout recovery (Fig 2)
-  dm_multistart.py         # Multi-start solver ablation
-  dm_z0init.py             # z0-replication vs random vs warm-start
-  drift_compare.py         # Grid world H=25 drift experiment
-  drift_h100.py            # Grid world H=100 drift experiment
-\end{verbatim}
 
 \end{document}

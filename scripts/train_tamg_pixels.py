@@ -22,7 +22,7 @@ from src.env.grid_world import GridWorld
 from src.env.scenarios import Scenario, PREDEFINED_SCENARIOS
 from src.env.renderer import GridWorldRenderer
 from src.pixel_slots import extract_slots, SLOT_DIM as PIXEL_SLOT_DIM
-from src.encoder.oracle_slot_encoder import encode_oracle_trajectory, build_door_key_map, ORACLE_SLOT_DIM, MAX_OBJECTS
+from src.env.oracle_slot_encoder import encode_oracle_trajectory, build_door_key_map, ORACLE_SLOT_DIM, MAX_OBJECTS
 from src.tamg_simple import SimpleTAMG, _corrupt
 from src.iwcm.fused_energy import FusedIWCMEnergy
 

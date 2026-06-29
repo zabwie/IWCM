@@ -30,7 +30,7 @@ import torch.nn.functional as F
 sys.path.insert(0, '.')
 from src.iwcm.fused_energy import FusedIWCMEnergy
 from src.iwcm.micro_energy import MicroIWCM
-from src.encoder.oracle_slot_encoder import ORACLE_SLOT_DIM, MAX_OBJECTS
+from src.env.oracle_slot_encoder import ORACLE_SLOT_DIM, MAX_OBJECTS
 
 H, N, d = 25, MAX_OBJECTS, ORACLE_SLOT_DIM
 

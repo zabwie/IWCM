@@ -22,7 +22,7 @@ from src.env.scenarios import Scenario
 from src.env.renderer import GridWorldRenderer
 from src.tamg.slot_encoder import TAMGSlotEncoder, corrupt_tamg_slots
 from src.iwcm.fused_energy import FusedIWCMEnergy
-from src.encoder.oracle_slot_encoder import encode_oracle_trajectory, build_door_key_map, ORACLE_SLOT_DIM
+from src.env.oracle_slot_encoder import encode_oracle_trajectory, build_door_key_map, ORACLE_SLOT_DIM
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 print(f"Device: {DEVICE}")

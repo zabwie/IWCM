@@ -11,7 +11,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.utils.seed import set_seed
 from src.iwcm.slot_energy import SlotIWCMEnergy
-from src.encoder.oracle_slot_encoder import ORACLE_SLOT_DIM, MAX_OBJECTS
+from src.env.oracle_slot_encoder import ORACLE_SLOT_DIM, MAX_OBJECTS
 from sklearn.metrics import roc_auc_score
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"

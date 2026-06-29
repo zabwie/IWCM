@@ -135,7 +135,7 @@ The delete improvement from 0.481→0.704 came from **data regeneration variance
 
 **Lesson**: always ablate. The held flags were a plausible fix that turned out to be unused.
 
-Files: `src/encoder/oracle_slot_encoder.py` (+7 lines, kept for completeness). Data regenerated with `scripts/generate_compositional_grid.py --num 25`.
+Files: `src/env/oracle_slot_encoder.py` (+7 lines, kept for completeness). Data regenerated with `scripts/generate_compositional_grid.py --num 25`.
 
 ### 5-Seed Significance (Regenerated Data)
 
@@ -466,7 +466,7 @@ python scripts/generate_compositional_grid.py --num 25
 # Train fused pooling IWCM
 python -c "
 from src.iwcm.fused_energy import FusedIWCMEnergy
-from src.encoder.oracle_slot_encoder import ORACLE_SLOT_DIM, MAX_OBJECTS
+from src.env.oracle_slot_encoder import ORACLE_SLOT_DIM, MAX_OBJECTS
 # ... see scripts/train_compositional.py for full training loop
 "
 

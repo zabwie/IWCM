@@ -27,7 +27,7 @@ from src.env.data import encode_state, encode_action
 from src.env.scenarios import Scenario, PREDEFINED_SCENARIOS
 from src.env.symbolic_state import SymbolicState, SymbolicTrajectory, symbolic_to_state_dict
 from src.ac3.oracle import SymbolicOracle
-from src.encoder.oracle_slot_encoder import encode_oracle_trajectory, build_door_key_map, ORACLE_SLOT_DIM, MAX_OBJECTS
+from src.env.oracle_slot_encoder import encode_oracle_trajectory, build_door_key_map, ORACLE_SLOT_DIM, MAX_OBJECTS
 
 
 def generate_valid_trajectory(scenario: Scenario, horizon: int, rng: np.random.RandomState) -> Tuple:

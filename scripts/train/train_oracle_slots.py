@@ -7,7 +7,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from src.utils.seed import set_seed
 from src.iwcm.model import IWCM
 from src.metrics.evaluation import metric_cross_surface_law_generalization, metric_valid_invalid_classification
-from src.encoder.oracle_slot_encoder import ORACLE_SLOT_DIM, MAX_OBJECTS
+from src.env.oracle_slot_encoder import ORACLE_SLOT_DIM, MAX_OBJECTS
 
 set_seed(42)
 device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -68,7 +68,7 @@ print("\nCross-surface evaluation (oracle slots)...")
 # Generate oracle-slot eval data
 from src.env.grid_world import GridWorld
 from src.env.scenarios import Scenario, PREDEFINED_SCENARIOS
-from src.encoder.oracle_slot_encoder import encode_oracle_trajectory, build_door_key_map
+from src.env.oracle_slot_encoder import encode_oracle_trajectory, build_door_key_map
 from src.env.symbolic_state import SymbolicState, SymbolicTrajectory, symbolic_to_state_dict
 from src.ac3.mutations.grammar import SymbolicMutationGrammar
 from copy import deepcopy

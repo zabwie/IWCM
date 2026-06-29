@@ -12,7 +12,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from scipy.optimize import linear_sum_assignment
 
 from src.utils.seed import set_seed
-from src.encoder.oracle_slot_encoder import (encode_oracle_trajectory, build_door_key_map, ORACLE_SLOT_DIM, MAX_OBJECTS)
+from src.env.oracle_slot_encoder import (encode_oracle_trajectory, build_door_key_map, ORACLE_SLOT_DIM, MAX_OBJECTS)
 from src.encoder.video_encoder import VideoEncoder
 from src.encoder.decoder import VideoDecoder
 from src.iwcm.fused_energy import FusedIWCMEnergy

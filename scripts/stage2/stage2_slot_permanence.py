@@ -18,7 +18,7 @@ from collections import defaultdict
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.utils.seed import set_seed
-from src.encoder.oracle_slot_encoder import (
+from src.env.oracle_slot_encoder import (
     encode_oracle_trajectory, build_door_key_map,
     ORACLE_SLOT_DIM, MAX_OBJECTS,
 )

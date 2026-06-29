@@ -5,7 +5,7 @@ from collections import defaultdict
 sys.path.insert(0, '.')
 from src.utils.seed import set_seed
 from src.iwcm.fused_energy import FusedIWCMEnergy
-from src.encoder.oracle_slot_encoder import ORACLE_SLOT_DIM, MAX_OBJECTS
+from src.env.oracle_slot_encoder import ORACLE_SLOT_DIM, MAX_OBJECTS
 
 H, N, d = 25, MAX_OBJECTS, ORACLE_SLOT_DIM
 device = "cuda"

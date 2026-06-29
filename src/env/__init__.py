@@ -1,5 +1,12 @@
 """Grid world environment for the IWCM paper."""
 
+from .oracle_slot_encoder import (
+    ORACLE_SLOT_DIM,
+    MAX_OBJECTS,
+    encode_oracle_slots,
+    encode_oracle_trajectory,
+    build_door_key_map,
+)
 from .grid_world import (
     GridWorld,
     OBJECT_TYPES,
@@ -38,4 +45,9 @@ __all__ = [
     "ACTION_NAMES",
     "DIRECTION_DELTAS",
     "LAYOUT_PRESETS",
+    "ORACLE_SLOT_DIM",
+    "MAX_OBJECTS",
+    "encode_oracle_slots",
+    "encode_oracle_trajectory",
+    "build_door_key_map",
 ]

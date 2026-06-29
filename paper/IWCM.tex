@@ -620,20 +620,20 @@ The TAMG pixel pipeline closes the gap between the IWCM framework and visual inp
 
 \subsection{Comparison to Prior Work}
 
-We compare IWCM to four prior world model families on the three criteria that define the drift problem: (1) whether the method eliminates autoregressive chain dependency, (2) whether it requires a trained rollout model to plan, and (3) whether it has been demonstrated on real physics environments. DreamerV3 \citep{hafner2023dreamerv3} fails all three: its RSSM is a recurrent autoregressive model, it requires rollout for planning, and it operates on real environments. Diffuser \citep{janner2022diffuser} is listed as ``partial'' because while diffusion denoising operates over entire trajectories jointly, each denoising step is conditioned on the previous latent, creating a sequential dependency that can accumulate errors at very long horizons. Diffusion World Models \citep{ding2024diffusion} share this limitation. Trajectory Transformer \citep{janner2021offline} is fully autoregressive. Among the compared methods, IWCM with $\zrep$ initialization is uniquely positive on all three criteria -- though the continuous-control experiments currently use oracle-structured features rather than pixel input.
+We compare IWCM to four prior world model families on the three criteria that define the drift problem: (1) whether the method eliminates autoregressive chain dependency, (2) whether it requires a trained rollout model to plan, and (3) whether it has been demonstrated on real physics environments. DreamerV3~\citep{hafner2023dreamerv3} fails all three: its RSSM is a recurrent autoregressive model, it requires rollout for planning, and it operates on real environments. Diffuser~\citep{janner2022diffuser} is listed as ``partial'' because while diffusion denoising operates over entire trajectories jointly, each denoising step is conditioned on the previous latent, creating a sequential dependency that can accumulate errors at very long horizons. Diffusion World Models~\citep{ding2024diffusion} share this limitation. Trajectory Transformer~\citep{janner2021offline} is fully autoregressive. Among the compared methods, IWCM with $\zrep$ initialization is uniquely positive on all three criteria -- though the continuous-control experiments currently use oracle-structured features rather than pixel input.
 
 \begin{table}[h]
 \centering
-\caption{Comparison to prior world model approaches. Among the compared methods, IWCM with $\zrep$ initialization is the only one that combines non-autoregressive evaluation with no rollout-model requirement and validation on continuous physics.}
+\caption{Comparison to prior world model approaches. DreamerV3~\citep{hafner2023dreamerv3}, Diffuser~\citep{janner2022diffuser}, Trajectory Transformer~\citep{janner2021offline}, and DWM~\citep{ding2024diffusion}. Among the compared methods, IWCM with $\zrep$ initialization is the only one that combines non-autoregressive evaluation with no rollout-model requirement and validation on continuous physics.}
 \label{tab:comparison}
 \begin{tabular}{@{}lccc@{}}
 \toprule
 Method & Drift-free & No rollout model & Real physics \\
 \midrule
-DreamerV3 \citep{hafner2023dreamerv3} & $\times$ & $\times$ & $\checkmark$ \\
-Diffuser \citep{janner2022diffuser} & partial & $\checkmark$ & $\checkmark$ \\
-Trajectory Transformer \citep{janner2021offline} & $\times$ & $\times$ & $\checkmark$ \\
-DWM \citep{ding2024diffusion} & partial & $\checkmark$ & $\checkmark$ \\
+DreamerV3 & $\times$ & $\times$ & $\checkmark$ \\
+Diffuser & partial & $\checkmark$ & $\checkmark$ \\
+Trajectory Transformer & $\times$ & $\times$ & $\checkmark$ \\
+DWM & partial & $\checkmark$ & $\checkmark$ \\
 \textbf{IWCM + $\zrep$ (this work)} & $\mathbf{\checkmark}$ & $\mathbf{\checkmark}$ & $\mathbf{\checkmark}$ \\
 \bottomrule
 \end{tabular}

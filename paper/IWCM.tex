@@ -388,7 +388,7 @@ The critical result: Model C exceeds 0.90 on all 6 violation types while Model B
 \subsection{DM Control Physics: Drift at $H=100$}
 \label{sec:exp_dm}
 
-\paragraph{Environment.} MuJoCo cartpole swingup (DM Control suite). Oracle-structured slot encoder maps MuJoCo physics state $(qpos, qvel)$ to 19-dim per-body features for cart and pole (2 bodies, $N=8$ slots with 6 empty). Actions are 1-dim continuous force. Horizon $H=100$. Training: 400 valid + 200 corrupted trajectories.
+\paragraph{Environment.} We test on three MuJoCo continuous-control tasks from DM Control: cartpole swingup (2 bodies, 1-d force), cheetah run (7 bodies, 6-d torques), and walker walk (7 bodies, 6-d torques). Oracle-structured slot encoders map physics state $(qpos, qvel)$ to 19-dim per-body features with $N=8$ slots. Horizon $H=100$. Training: 400 valid + 200 corrupted trajectories for cartpole, 200 + 100 for cheetah and walker.
 
 \paragraph{Models compared.}
 
@@ -399,7 +399,7 @@ The critical result: Model C exceeds 0.90 on all 6 violation types while Model B
   \item \textbf{Warm-start solver}: IWCM solver from $Z^{(0)} = Z_\text{rollout}$, 100 GD steps.
 \end{itemize}
 
-\paragraph{Solver parameters.} Learning rate $\alpha = 0.01$, momentum $\mu = 0.9$, $K = 100$ steps. Energy function: FusedIWCMEnergy (52K params) trained on same data with margin loss.
+\paragraph{Solver parameters.} All experiments use $K=100$, $\alpha=0.01$, momentum $\mu=0.9$ for the reported drift results. Section~\ref{sec:speed} shows that $K=20$ with $\alpha=0.08$ preserves energy within $|\Delta E| < 0.004$ at 10.9~ms (5.2$\times$ faster), and that a learned amortized solver reduces this further to 92~$\mu$s while matching K20 energy within $|\Delta E| < 0.002$. The energy function is FusedIWCMEnergy (52K params) trained on the same data with margin loss.
 
 \paragraph{Drift metric.} The energy gap $\Delta = E(z_0, A, Z_\text{pred}) - E(z_0, A, Z_\text{true})$. Positive $\Delta$ means the predicted trajectory has higher constraint violation energy than ground truth -- it has drifted. Negative $\Delta$ means the solver found a trajectory \emph{more} constraint-satisfying than the real physics (which contains natural noise).
 
@@ -640,10 +640,11 @@ DWM \citep{ding2024diffusion} & partial & $\checkmark$ & $\checkmark$ \\
 \end{table}
 
 \subsection{Speed and Cost}
+\label{sec:speed}
 
-The IWCM energy function evaluates an entire 100-step worldline in a single feed-forward pass. Table~\ref{tab:speed} reports measured runtime on a single RTX 3060 in fp32. The exact gradient solver requires multiple forward-backward passes through the energy function: 100 steps at the paper's original setting, or 20 steps with tuned learning rate ($K=20, \alpha=0.08$) which preserves energy within $|\Delta E| < 0.004$ while reducing time from 51.2~ms to 10.9~ms.
+The IWCM energy function evaluates an entire 100-step worldline in a single feed-forward pass. Table~\ref{tab:speed} reports measured runtime on a single RTX 3060 in fp32. The exact gradient solver takes 51.2~ms at $K=100$ (the paper's original setting) and 10.9~ms at $K=20$ with tuned learning rate $\alpha=0.08$, which preserves energy within $|\Delta E| < 0.004$.
 
-A learned amortized solver (76K parameters, per-timestep MLP) can approximate the exact solver's output in a single forward pass, achieving 92~$\mu$s with $|\Delta E| < 0.002$ relative to the exact $K=20$ solver. This demonstrates that the primary cost is the iterative optimization procedure, not the energy function itself.
+We then amortize the solver into a 76K-parameter feed-forward network (per-timestep MLP) that matches K20 energy across three continuous-control domains at 92--108~$\mu$s per trajectory -- a 100--500$\times$ speedup over the exact solver depending on step count. The amortized solver is trained by distillation: the exact K20 solver generates ground-truth trajectories for 30 training rollouts, and the network learns to predict $Z_{\text{solved}}$ from $(z_0, A)$ directly. The speedup comes entirely from removing inference-time autograd, not from lower precision (fp16/bf16 fail with $|\Delta E| > 2.0$).
 
 \begin{table}[h]
 \centering
@@ -656,14 +657,31 @@ Operation & Time & Notes \\
 IWCM energy forward & 0.16 ms & Single forward pass \\
 IWCM exact solver, $K=100,\ \alpha=0.01$ & 51.2 ms & Full gradient solver (paper original) \\
 IWCM exact solver, $K=20,\ \alpha=0.08$ & 10.9 ms & Tuned solver, $|\Delta E| < 0.004$ \\
-Amortized IWCM solver & 0.092 ms & Learned one-pass approximation, $|\Delta E| < 0.002$ \\
+Amortized IWCM solver & 0.092--0.108 ms & Learned one-pass, $|\Delta E| < 0.002$ vs K20 \\
 Rollout MLP (100 steps) & 0.008 ms & Autoregressive MLP forward passes \\
 DreamerV3 RSSM (100 steps) & $\sim$200 ms & 100 autoregressive GRU steps \citep{hafner2023dreamerv3} \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-The amortized solver is a distilled approximation of the exact gradient descent procedure; the exact solver remains the ground-truth constraint-satisfaction mechanism. The amortized solver demonstrates that the iterative solver's cost is an implementation artifact of repeated autograd passes, not an architectural limitation of the energy-based formulation. A production system could fuse or compile the solver loop, replace autograd with custom backward kernels, or use the amortized approximation directly when full exactness is not required.
+Table~\ref{tab:amortized_domains} summarizes the amortized solver's performance across three continuous-control domains with different dynamics and action dimensions. The solver generalizes across all tested horizons ($H=10$ to $H=200$) without retraining, and in several cases produces lower trajectory MSE than the exact K20 solver on short horizons.
+
+\begin{table}[h]
+\centering
+\caption{Amortized IWCM solver performance across continuous-control domains at $H=100$.}
+\label{tab:amortized_domains}
+\begin{tabular}{@{}lcccc@{}}
+\toprule
+Domain & Bodies & Act. dim & Amort. MSE & Amort. $\Delta E$ & Time \\
+\midrule
+Cartpole swingup & 2 & 1 & $8.2\times10^{-4}$ & $-0.83$ & 100~$\mu$s \\
+Cheetah run & 7 & 6 & $8.8\times10^{-3}$ & $-4.51$ & 106~$\mu$s \\
+Walker walk & 7 & 6 & $4.0\times10^{-6}$ & $-0.03$ & 96~$\mu$s \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The amortized solver is a distilled approximation of the exact gradient descent procedure; the exact solver remains the ground-truth constraint-satisfaction mechanism. The amortized solver demonstrates that the iterative solver's cost is an implementation artifact of repeated autograd passes, not an architectural limitation of the energy-based formulation. A production system could fuse or compile the solver loop or use the amortized approximation directly.
 
 % -------------------------------------------------------
 \section{Discussion}

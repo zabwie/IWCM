@@ -15,6 +15,8 @@
 
 \newtheorem{definition}{Definition}
 \newtheorem{proposition}{Proposition}
+\newtheorem{observation}{Observation}
+\newtheorem{informalclaim}{Informal Claim}
 \newtheorem{remark}{Remark}
 \newtheorem{theorem}{Theorem}
 
@@ -23,9 +25,9 @@
 \newcommand{\warm}{\textsc{warm}}
 
 \title{%
-  \textbf{World Models as Constraint Solvers: \\
-  Implicit Worldline Constraint Models \\
-  Eliminate Autoregressive Drift}
+  \textbf{Implicit Worldline Constraint Models: \\
+  Joint Trajectory Energy Optimization \\
+  Without Autoregressive Rollout}
 }
 
 \author{Zabdiel P{\'e}rez Mu{\~n}iz \\ Independent Researcher \\ \texttt{zabdielperez00@gmail.com}}
@@ -38,20 +40,20 @@
 \begin{abstract}
 Learned world models based on autoregressive rollout suffer from a structural failure: prediction errors compound over time, causing the model to plan inside increasingly fictional futures. We argue this is not a capacity problem but an architectural one. The fundamental error is treating the future as a sequence to be \emph{generated} rather than a set of latent states to be \emph{solved}.
 
-We introduce the Implicit Worldline Constraint Model (IWCM), a world model whose primary object is not a transition function but a differentiable energy function over entire latent worldlines. Planning becomes joint constraint satisfaction over all future states simultaneously, breaking the autoregressive dependency chain and eliminating structural drift by construction.
+We introduce the Implicit Worldline Constraint Model (IWCM), a world model whose primary object is not a transition function but a differentiable energy function over entire latent worldlines. Planning becomes joint constraint satisfaction over all future states simultaneously, breaking the autoregressive dependency chain and eliminating autoregressive chain drift by construction.
 
 We present five key empirical results:
 
 \begin{enumerate}
-  \item \textbf{Cross-surface law generalization.} On a compositional grid world with 6 violation types (delete, duplicate, reverse, swap, teleport, transform), the IWCM energy function achieves 0.952 AUROC under the AC3 compositional corruption curriculum, versus 0.696 with random corruptions -- a +0.256 improvement that demonstrates genuine causal law learning rather than surface pattern memorization.
+  \item \textbf{Cross-surface law generalization.} On a compositional grid world with 6 violation types (delete, duplicate, reverse, swap, teleport, transform), the IWCM energy function achieves 0.952 AUROC under the AC3 compositional corruption curriculum, versus 0.696 with random corruptions -- a +0.256 improvement that provides evidence for invariant-based constraint learning rather than surface pattern memorization.
 
-  \item \textbf{Drift elimination on physics.} On DM Control cartpole at $H=100$, an IWCM solver initialized by replicating the observed state $z_0$ across all timesteps finds trajectories with energy \emph{below} ground truth ($\Delta=-2.66$) and flat across all horizons, while a rollout baseline compounds to $\Delta=+53.19$ at $H=100$.
+  \item \textbf{Flat learned energy on physics.} On DM Control cartpole at $H=100$, an IWCM solver initialized by replicating the observed state $z_0$ across all timesteps finds trajectories with energy \emph{below} ground truth ($\Delta=-2.66$) and flat across all horizons, while a rollout baseline compounds to $\Delta=+53.19$ at $H=100$.
 
   \item \textbf{No rollout model required.} The $\zrep$ initialization achieves strictly lower energy than warm-starting from a learned rollout model ($-3.62$ vs $-3.16$ at $H=100$), eliminating the warm-start dependency.
 
-  \item \textbf{Recovery from degraded rollouts.} Even when the rollout model is deliberately crippled (95$\times$ higher MSE), the warm-started IWCM solver recovers trajectories with energy below ground truth -- the solver acts as a constraint satisfaction filter that pulls drifted predictions back to validity.
+  \item \textbf{Recovery from degraded rollouts.} Even when the rollout model is deliberately crippled (95$\times$ higher MSE), the warm-started IWCM solver recovers trajectories with energy below ground truth -- the solver acts as a learned constraint-satisfaction filter that pulls drifted predictions toward lower-energy trajectories.
 
-  \item \textbf{Pixel pipeline: oracle dependency eliminated.} A learned visual encoder (TAMGSlotEncoder, 345K parameters) trained via structured self-supervision -- velocity MSE, contrastive identity tracking, online clustering, and reconstruction -- produces slot representations from raw pixels that match oracle-slot performance at 0.996 AUROC, with flat energy across $10\times$ horizon increase. This replaces the symbolic oracle with a lightweight CNN trained in 30 minutes on a single RTX 3060, requiring no labels and no simulator state access at inference time.
+  \item \textbf{Pixel pipeline: oracle dependency eliminated in the grid-world setting.} A learned visual encoder (TAMGSlotEncoder, 345K parameters) trained via structured self-supervision -- velocity MSE, contrastive identity tracking, online clustering, and reconstruction -- produces slot representations from raw pixels that match oracle-slot performance at 0.996 AUROC, with flat energy across $10\times$ horizon increase. This replaces the symbolic oracle with a lightweight CNN trained in 30 minutes on a single RTX 3060, requiring no labels and no simulator state access at inference time.
 \end{enumerate}
 
 All code, training pipelines, and reproduction scripts are provided at \url{https://github.com/zabwie/IWCM}.
@@ -90,7 +92,7 @@ This assumption is similarly mistaken. A world model may instead represent \emph
 
 A second, deeper problem concerns what is learned. Neural networks trained by gradient descent are pushed toward $\hat{y} \approx \mathbb{E}[y \mid x]$, the conditional average, not the underlying causal structure. A world model trained on next-state prediction learns \emph{what usually happens}, not \emph{what must remain true}. These diverge under long-horizon planning, novel configurations, and counterfactual queries.
 
-This paper addresses both problems. We propose IWCM to eliminate structural drift and demonstrate it empirically on real physics, with a \textbf{z0-replication initialization} that requires no rollout model, and a recovery property that pulls drifted predictions back to causal validity.
+This paper addresses both problems. We propose IWCM to eliminate autoregressive chain drift and demonstrate it empirically on real physics, with a \textbf{z0-replication initialization} that requires no rollout model, and a recovery property that pulls drifted predictions back toward validity under the learned energy.
 
 \begin{figure}[h]
 \centering
@@ -184,11 +186,11 @@ agg = 0.3 * mean(scores) + 0.7 * max(scores)
 energy = lambda1*boundary + lambda2*local + lambda3*invariant
 \end{verbatim}
 
-No recurrence. No attention. Single projection. Fused 3-head scorer. Temporal pooling over $H$ replaces the sequential processing of autoregressive models, making the energy function $O(1)$ in the core operation.
+No recurrence. No attention. Single projection. Fused 3-head scorer. Temporal pooling over $H$ replaces the sequential processing of autoregressive models -- non-recurrent; one pooled forward pass over the full horizon.
 
 \paragraph{Why temporal pooling beats recurrence.} Corruptions (teleport, swap, duplicate) create sharp temporal discontinuities. A bidirectional GRU smooths these out. Mean/max/std pooling preserves them directly. The std channel captures variance that GRU compresses. Simpler architecture, better signal.
 
-\paragraph{Max pooling is structurally necessary.} Identity violations manifest as a single anomalous timestep. Max pooling answers ``did ANY timestep look wrong?'' -- a non-differentiable operation that no linear projection with GELU can approximate. Removing max pooling collapses identity detection from 0.880 to 0.284 regardless of hidden layer size.
+\paragraph{Max pooling is structurally necessary.} Identity violations manifest as a single anomalous timestep. Max pooling answers ``did ANY timestep look wrong?'' -- it provides sparse anomaly sensitivity that is subdifferentiable in practice. Removing max pooling collapses identity detection from 0.880 to 0.284 regardless of hidden layer size.
 
 \begin{figure}[h]
 \centering
@@ -223,10 +225,10 @@ The critical insight for tractability is the \textbf{z0-replication initializati
 
 This places the initial candidate inside the valid state manifold (every individual state is the real observed initial state). The gradient descent only needs to adjust the trajectory to satisfy action-conditioned dynamics, never needing to cross the high-energy plateau that separates random initialization from the valid region.
 
-\begin{proposition}[Drift Elimination]
+\begin{observation}[Drift Elimination by Construction]
 \label{prop:drift_elim}
-In IWCM, $E_\theta(z_0, A, Z)$ is a direct function of $z_0$ for every $z_t \in Z$. No $z_t$ is computed as a function of any $\hat{z}_{t-1}$. Single-step model errors therefore cannot accumulate through a prediction chain. With $\zrep$ initialization, the solver operates entirely within the valid manifold at initialization and constraint satisfaction improves monotonically.
-\end{proposition}
+In IWCM, $E_\theta(z_0, A, Z)$ is a direct function of $z_0$ for every $z_t \in Z$. No $z_t$ is computed as a function of any $\hat{z}_{t-1}$. Single-step model errors therefore cannot accumulate through a prediction chain. With $\zrep$ initialization, the solver operates entirely within the valid manifold at initialization. Under standard gradient descent with appropriate step size, constraint satisfaction does not increase with horizon length -- the initialization is already valid and the solver refines within the valid region.
+\end{observation}
 
 \subsection{Why Drift Disappears}
 
@@ -267,9 +269,10 @@ Let $Z_\text{roll}$ be a rollout trajectory from a learned transition model. Let
   Z_\text{warm} = \text{GD}(Z_\text{roll}; E_\theta, K_\text{warm})
 \]
 
-\begin{proposition}[Recovery]
-For any $Z_\text{roll}$ in the vicinity of the valid manifold (i.e., $\|E_\theta(z_0, A, Z_\text{roll}) - E_\theta(z_0, A, Z_\text{true})\|$ bounded), gradient descent from $Z_\text{roll}$ converges to a trajectory with energy no greater than $E_\theta(z_0, A, Z_\text{roll})$, and typically strictly lower.
-\end{proposition}
+\begin{informalclaim}[Recovery Under Learned Energy]
+\label{prop:recovery}
+For any $Z_\text{roll}$ in the vicinity of the valid manifold (i.e., $\|E_\theta(z_0, A, Z_\text{roll}) - E_\theta(z_0, A, Z_\text{true})\|$ bounded), gradient descent from $Z_\text{roll}$ typically finds a trajectory with energy no greater than $E_\theta(z_0, A, Z_\text{roll})$, and often strictly lower. This holds empirically across our experiments, but is not guaranteed for arbitrary non-convex learned energies.
+\end{informalclaim}
 
 Empirically, we find that warm-started IWCM consistently finds trajectories with energy \emph{below ground truth}, even when the rollout model is deliberately degraded (Section~\ref{sec:recovery}). The solver acts as a constraint satisfaction filter: it \emph{pulls} the rollout trajectory toward the energy minimum, correcting the accumulated drift.
 
@@ -282,7 +285,7 @@ The IWCM optimization is a differentiable soft constraint satisfaction problem. 
 \label{sec:ac3}
 % -------------------------------------------------------
 
-The IWCM energy function $E_\theta(z_0, A, Z)$ is trained to assign low energy to physically valid trajectories and high energy to invalid ones. The choice of \emph{which} invalid trajectories to train on determines what the model learns. Random corruptions teach the statistical regularities of the training distribution; a targeted curriculum forces the model to learn causal structure.
+The IWCM energy function $E_\theta(z_0, A, Z)$ is trained to assign low energy to physically valid trajectories and high energy to invalid ones. The choice of \emph{which} invalid trajectories to train on determines what the model learns. Random corruptions teach the statistical regularities of the training distribution; a targeted curriculum forces the model to learn invariant features that discriminate valid from invalid trajectories.
 
 AC3 generates \emph{near-miss} corrupted worlds -- trajectories that are surface-plausible (same objects, similar trajectories, same environment) but physically invalid. The key design principle is \textbf{compositionality}: corruptions vary along multiple independent axes, ensuring that no single factor predicts whether a trajectory is valid.
 
@@ -298,12 +301,12 @@ AC3 generates \emph{near-miss} corrupted worlds -- trajectories that are surface
 
 Each corrupted trajectory is generated by randomly sampling values along each axis -- for example, ``delete a key at mid-timestep while it is carried'' or ``teleport a box in early timesteps while visible.'' The full grid spans $2 \times 3 \times 6 \times 3 \times 4 = 432$ distinct corruption configurations, with systematic coverage across all combinations.
 
-\paragraph{Why compositionality matters.} A model trained on random corruptions can learn simple heuristics: ``deleted objects cause high energy'' or ``teleported objects cause high energy.'' But these heuristics fail on held-out corruption types because they memorize the surface form rather than the underlying law. Compositional training forces the model to learn \emph{the invariants that define validity} -- the physics laws themselves -- because no single surface feature correlates with the valid/invalid label across all grid cells.
+\paragraph{Why compositionality matters.} A model trained on random corruptions can learn simple heuristics: ``deleted objects cause high energy'' or ``teleported objects cause high energy.'' But these heuristics fail on held-out corruption types because they memorize the surface form rather than the underlying invariants. Compositional training forces the model to learn \emph{the invariants that define validity} rather than single-axis correlations -- because no single surface feature predicts the valid/invalid label across all grid cells.
 
 \begin{figure}[h]
 \centering
 \includegraphics[width=0.88\textwidth]{AC3.png}
-\caption{AC3 compositional corruption grid. Six violation types (delete, duplicate, swap, teleport, reverse, transform) are applied across multiple context axes (object type, context, time gap). The grid ensures that no single axis predicts the valid/invalid label, forcing the model to learn the underlying causal laws. Below: a valid trajectory where a key is visible and interacts with a box, vs a corrupted trajectory with teleportation, occlusion, and late appearance.}
+\caption{AC3 compositional corruption grid. Six violation types (delete, duplicate, swap, teleport, reverse, transform) are applied across multiple context axes (object type, context, time gap). The grid ensures that no single axis predicts the valid/invalid label, forcing the model to learn the underlying invariants that define validity. Below: a valid trajectory where a key is visible and interacts with a box, vs a corrupted trajectory with teleportation, occlusion, and late appearance.}
 \label{fig:ac3}
 \end{figure}
 
@@ -380,7 +383,7 @@ Distilled MLP & 990K & 0.824 & 0.417 & 0.664 \\
 \end{tabular}
 \end{table}
 
-The critical result: Model C exceeds 0.90 on all 6 violation types while Model B fails to separate valid from corrupt on 4 of 6 types. Random corruptions teach surface statistics; the compositional grid teaches causal laws.
+The critical result: Model C exceeds 0.90 on all 6 violation types while Model B fails to separate valid from corrupt on 4 of 6 types. Random corruptions teach surface statistics; the compositional grid teaches invariant-based discrimination.
 
 \subsection{DM Control Physics: Drift at $H=100$}
 \label{sec:exp_dm}
@@ -427,7 +430,7 @@ Step & E(true) & E(cold) & E(z0rep) & E(warm) & $\Delta$ cold & $\Delta$ z0rep &
 \begin{figure}[h]
 \centering
 \includegraphics[width=0.92\textwidth]{fig1_drift.pdf}
-\caption{Drift divergence at $H=100$ on DM Control cartpole. Cold-start random initialization fails catastrophically ($\Delta=+53$ at $H=100$, rising from $+45$ at step 10). Both $\zrep$ and warm-start find trajectories with energy \emph{below} ground truth and remain flat across all horizons ($\zrep$ at $\Delta \approx -2.66$, warm at $\Delta \approx -2.20$). The gap between cold and the two successful methods demonstrates that IWCM eliminates autoregressive drift when properly initialized -- and $\zrep$ achieves this without any rollout model.}
+\caption{Drift divergence at $H=100$ on DM Control cartpole. Cold-start random initialization fails catastrophically ($\Delta=+53$ at $H=100$, rising from $+45$ at step 10). Both $\zrep$ and warm-start find trajectories with energy \emph{below} ground truth and remain flat across all horizons ($\zrep$ at $\Delta \approx -2.66$, warm at $\Delta \approx -2.20$). The gap between cold and the two successful methods demonstrates that IWCM eliminates autoregressive chain drift when properly initialized -- and $\zrep$ achieves this without any rollout model.}
 \label{fig:drift}
 \end{figure}
 
@@ -440,6 +443,31 @@ Three critical findings from Figure~\ref{fig:drift}:
 
   \item \textbf{$\zrep$ beats warm-start.} The z0-replication solver achieves strictly lower energy than warm-start from a trained rollout model ($-3.62$ vs $-3.16$ at $H=100$). This eliminates the dependency on a rollout model entirely.
 \end{enumerate}
+
+\paragraph{Energy vs physical trajectory accuracy.}
+The energy metric measures constraint satisfaction under the learned discriminator, not physical state error. To characterize this relationship, we compute the state MSE (position and velocity slot channels, normalized) between each method's predicted trajectory and the simulator ground truth.
+
+\begin{table}[h]
+\centering
+\caption{Energy gap $\Delta E$ vs physical state MSE (position + velocity channels) across horizons on DM Control cartpole. Lower energy does not guarantee lower physical error.}
+\label{tab:energy_mse}
+\begin{tabular}{@{}lrrr|rrr@{}}
+\toprule
+$H$ & \multicolumn{3}{c}{State MSE (pos+vel)} & \multicolumn{3}{c}{Energy $\Delta$} \\
+\cmidrule(lr){2-4} \cmidrule(lr){5-7}
+ & Rollout & $\zrep$ & Warm & Rollout & $\zrep$ & Warm \\
+\midrule
+10 & 0.000002 & 0.000170 & 0.000085 & +0.008 & -0.108 & -0.065 \\
+25 & 0.000005 & 0.000325 & 0.000123 & +0.012 & -0.182 & -0.133 \\
+50 & 0.000008 & 0.000500 & 0.000133 & +0.026 & -0.336 & -0.277 \\
+100 & 0.000020 & 0.000844 & 0.000162 & +0.046 & -0.698 & -0.599 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Three observations emerge. First, the rollout MLP achieves the lowest MSE ($2\times 10^{-5}$ at $H=100$) with a small positive energy drift, confirming that well-trained autoregressive models can be accurate on simple physics. Second, the $\zrep$ solver achieves the most negative energy ($-0.698$) but at higher physical MSE ($8.4\times 10^{-4}$) -- optimizing the learned energy does not monotonically improve physical accuracy. Third, the warm-start solver recovers most of the rollout's physical accuracy (MSE $1.6\times 10^{-4}$) while still achieving negative energy ($-0.599$), demonstrating that combining a rollout initialization with IWCM refinement provides the best trade-off.
+
+The key implication: learned energy and physical accuracy are correlated but not equivalent. The energy function detects constraint violations that correlate with physical invalidity, but aggressive optimization can produce low-energy trajectories that deviate from true dynamics. This reinforces the framing of IWCM as a constraint-satisfaction filter rather than a dynamics predictor -- its strength is eliminating autoregressive chain drift in the learned energy landscape, with physical accuracy depending on energy calibration quality.
 
 \subsection{Initialization Ablation}
 \label{sec:exp_init}
@@ -481,7 +509,7 @@ The previous experiments used a well-trained rollout model. The critical questio
 \label{fig:recovery}
 \end{figure}
 
-The degraded rollout produces trajectories with $\Delta = -0.75$ at $H=100$ -- \emph{lower} energy than ground truth. This counterintuitive result reveals an important property of the learned energy function: the IWCM was trained on a finite dataset of real trajectories, and its energy function rewards trajectories that match the \emph{average} properties of valid data, not the noise characteristics of any particular trajectory. The degraded MLP, by being too simple to reproduce the noise, produces smoother trajectories that happen to have lower energy.
+The degraded rollout produces trajectories with $\Delta = -0.75$ at $H=100$ -- \emph{lower} energy than ground truth. This finding requires careful interpretation: the learned energy function rewards trajectories that match the \emph{average} properties of valid data, not the noise characteristics of any particular trajectory. Lower learned energy does not automatically mean more physically correct -- it may mean the energy model prefers smoother, less noisy trajectories that deviate from the true physics distribution. The degraded MLP, by being too simple to reproduce the noise, produces smoother trajectories that happen to have lower energy under the learned metric. This is a known limitation of discriminator-based evaluation: the energy is a proxy for validity, not a proof of it.
 
 The warm-started IWCM improves further still: $\Delta = -0.84$ at $H=100$, a 12\% improvement over the degraded rollout. More importantly, the energy is \emph{flat} across all horizons at $-1.53$. The solver finds a trajectory that satisfies constraints equally well at step 10 and step 100.
 
@@ -537,13 +565,13 @@ The total loss combines these with the IWCM margin loss:
 
 \begin{table}[h]
 \centering
-\caption{Pixel pipeline corruption detection. TAMGSlotEncoder replaces the symbolic oracle with a learned visual encoder, matching oracle performance at AUROC $>0.99$ on pixel inputs. 5-seed significance.}
+\caption{Pixel pipeline corruption detection (grid-world setting). TAMGSlotEncoder replaces the symbolic oracle with a learned visual encoder, achieving 0.996 AUROC on pixel inputs. Note: the oracle-slots row is a reference point using ground-truth physics features, not an upper bound -- TAMG can exceed it because the learned encoder may extract features the oracle's hand-crafted slots miss. 5-seed significance.}
 \label{tab:tamg}
 \begin{tabular}{@{}lrrr@{}}
 \toprule
 Condition & Params & AUROC & Pixel input \\
 \midrule
-Oracle slots (upper bound) & 52K & 0.952 & $\times$ \\
+Oracle slots (reference) & 52K & 0.952 & $\times$ \\
 Frozen ResNet-18 backbone & 11M & 0.63 & $\checkmark$ \\
 \textbf{TAMGSlotEncoder (this work)} & \textbf{345K} & \textbf{0.996} & \textbf{$\checkmark$} \\
 \midrule
@@ -577,7 +605,7 @@ Slope vs $\log H$ & 0.0015 & & \\
 \paragraph{Key findings.}
 
 \begin{enumerate}
-  \item \textbf{Oracle dependency is broken.} TAMG achieves 0.996 AUROC on 200 trajectories, matching the 0.952 AUROC of the oracle-slot upper bound. Across 5 random seeds, performance is stable at $\geq 0.996$.
+  \item \textbf{Oracle dependency is broken in the grid-world setting.} TAMG achieves 0.996 AUROC on 200 grid-world pixel trajectories, exceeding the 0.952 AUROC of oracle-structured slots. Across 5 random seeds, performance is stable at $\geq 0.996$.
   
   \item \textbf{TAMG is 30$\times$ smaller and more accurate than frozen backbones.} TAMGSlotEncoder (345K params) achieves 0.996 AUROC, while frozen ResNet-18 (11M params, 30$\times$ larger) achieves only 0.63. This is not a scaling issue -- it is an architectural one: TAMG's structured self-supervision (velocity, identity, type) pulls the backbone toward physics features, while ImageNet pretraining encodes object semantics irrelevant to causal constraint learning.
   
@@ -586,15 +614,15 @@ Slope vs $\log H$ & 0.0015 & & \\
   \item \textbf{Spatial anchoring prevents collapse.} Without spatial anchoring, all slot queries attend to identical feature vectors and produce uniform identity embeddings that kill the contrastive gradient. Grid-cell initialization of slot biases (3$\times$3 grid for 8 slots) ensures each slot starts with a distinct spatial focus.
 \end{enumerate}
 
-The TAMG pixel pipeline closes the gap between the IWCM framework and real-world visual input. The core architectural insight -- that structured self-supervision (velocity, identity, type, reconstruction) pulls a learned backbone toward physics features while the IWCM energy function trains the task head -- produces representations that match oracle quality despite no access to ground-truth state.
+The TAMG pixel pipeline closes the gap between the IWCM framework and visual input in the grid-world setting. The core architectural insight -- that structured self-supervision (velocity, identity, type, reconstruction) pulls a learned backbone toward physics features while the IWCM energy function trains the task head -- produces representations that match oracle quality despite no access to ground-truth state. Extending this pipeline to continuous-control domains (rendered MuJoCo frames or real camera input) remains an important next step.
 
 \subsection{Comparison to Prior Work}
 
-We compare IWCM to four prior world model families on the three criteria that define the drift problem: (1) whether the method is architecturally drift-free (no autoregressive chain), (2) whether it requires a trained rollout model to plan, and (3) whether it has been demonstrated on real physics environments. DreamerV3 \citep{hafner2023dreamerv3} fails all three: its RSSM is a recurrent autoregressive model, it requires rollout for planning, and it operates on real environments. Diffuser \citep{janner2022diffuser} is listed as ``partial'' because while diffusion denoising operates over entire trajectories jointly, each denoising step is conditioned on the previous latent, creating a sequential dependency that can accumulate errors at very long horizons. Diffusion World Models \citep{ding2024diffusion} share this limitation. Trajectory Transformer \citep{janner2021offline} is fully autoregressive. IWCM with $\zrep$ initialization is the only method that is structurally drift-free, requires no rollout model, and has been validated on continuous physics.
+We compare IWCM to four prior world model families on the three criteria that define the drift problem: (1) whether the method eliminates autoregressive chain dependency, (2) whether it requires a trained rollout model to plan, and (3) whether it has been demonstrated on real physics environments. DreamerV3 \citep{hafner2023dreamerv3} fails all three: its RSSM is a recurrent autoregressive model, it requires rollout for planning, and it operates on real environments. Diffuser \citep{janner2022diffuser} is listed as ``partial'' because while diffusion denoising operates over entire trajectories jointly, each denoising step is conditioned on the previous latent, creating a sequential dependency that can accumulate errors at very long horizons. Diffusion World Models \citep{ding2024diffusion} share this limitation. Trajectory Transformer \citep{janner2021offline} is fully autoregressive. Among the compared methods, IWCM with $\zrep$ initialization is uniquely positive on all three criteria -- though the continuous-control experiments currently use oracle-structured features rather than pixel input.
 
 \begin{table}[h]
 \centering
-\caption{Comparison to prior world model approaches. IWCM with $\zrep$ initialization is the only method that eliminates structural drift without a rollout model.}
+\caption{Comparison to prior world model approaches. Among the compared methods, IWCM with $\zrep$ initialization is the only one that combines non-autoregressive evaluation with no rollout-model requirement and validation on continuous physics.}
 \label{tab:comparison}
 \begin{tabular}{@{}lccc@{}}
 \toprule
@@ -629,29 +657,29 @@ DreamerV3 RSSM (100 steps) & $\sim$200 ms & 100 autoregressive GRU steps \\
 \end{tabular}
 \end{table}
 
-The solver is 0.13 ms per trajectory -- 1500$\times$ cheaper than DreamerV3's autoregressive rollout at the same horizon. The total planning cost (100 solver steps $\times$ 8 candidate action sequences) is approximately 1 ms, compared to hundreds of milliseconds for MPPI or DreamerV3.
+The solver is 0.13 ms per trajectory in this implementation. IWCM is not faster than a tiny rollout MLP (0.008 ms for 100 steps), but it removes autoregressive dependency while remaining computationally cheap. As a point of reference, DreamerV3's RSSM rollout is estimated at $\sim$200 ms for 100 steps in its optimized framework \citep{hafner2023dreamerv3}. Direct runtime comparison depends heavily on implementation details, environment interface, and hardware. The key architectural point is that IWCM avoids sequential latent updates entirely; the raw speed advantage over an optimized DreamerV3 implementation may be smaller than this architectural estimate suggests.
 
 % -------------------------------------------------------
 \section{Discussion}
 \label{sec:discussion}
 % -------------------------------------------------------
 
-\subsection{What Has Been Proven}
+\subsection{Empirical Evidence}
 
-Six claims are supported empirically:
+Six results provide empirical support:
 
 \begin{enumerate}
-  \item \textbf{IWCM eliminates autoregressive drift by construction.} The $\zrep$-initialized solver produces trajectories with energy flat across all horizons $H \in [10, 100]$, with zero slope. This supports Proposition~\ref{prop:drift_elim} empirically.
+  \item \textbf{IWCM eliminates autoregressive chain drift by construction.} The $\zrep$-initialized solver produces trajectories with energy flat across all horizons $H \in [10, 100]$, with zero slope. This supports Observation~\ref{prop:drift_elim} empirically.
 
   \item \textbf{No rollout model is required.} The $\zrep$ initialization achieves lower energy than warm-start from a trained rollout model. The solver needs only $z_0$, $A$, and the energy function $E_\theta$.
 
-  \item \textbf{Recovery is robust.} Even from a deliberately degraded rollout (95$\times$ higher MSE), the warm-started solver finds trajectories with energy below ground truth.
+  \item \textbf{Recovery is robust under the learned energy.} Even from a deliberately degraded rollout (95$\times$ higher MSE), the warm-started solver finds trajectories with energy below ground truth. Note: lower learned energy indicates better constraint satisfaction by the learned metric, not necessarily higher physical accuracy. Table~\ref{tab:energy_mse} quantifies this gap: on cartpole, the $\zrep$ solver achieves $\Delta E = -0.698$ at $H=100$ but with state MSE $8.4\times 10^{-4}$, while the rollout MLP has $+0.046$ energy drift but MSE $2\times 10^{-5}$. The energy metric and physical accuracy are correlated but not equivalent.
 
-  \item \textbf{Cold start is the only failure mode.} Random $\mathcal{N}(0,I)$ initialization cannot find the valid manifold. This is expected: the energy function is a discriminator trained to have a narrow valid region, and the gradient on the surrounding plateau is uninformative.
+  \item \textbf{Cold start is the primary failure mode observed in our experiments.} Random $\mathcal{N}(0,I)$ initialization cannot find the valid manifold. This is expected: the energy function is a discriminator trained to have a narrow valid region, and the gradient on the surrounding plateau is uninformative.
 
   \item \textbf{The energy function transfers across horizons.} The IWCM trained on $H=25$ data works without modification at $H=100$. The fused pooling architecture is horizon-agnostic.
 
-  \item \textbf{Compositional corruption causes law learning.} The 0.952 AUROC on cross-surface generalization (Table~\ref{tab:cross_surface}) demonstrates that IWCM learns causal invariants under the compositional corruption curriculum, rather than surface statistics.
+  \item \textbf{Compositional corruption enables invariant discrimination.} The 0.952 AUROC on cross-surface generalization (Table~\ref{tab:cross_surface}) demonstrates that IWCM learns invariant features for discrimination under the compositional corruption curriculum, rather than surface statistics. This is evidence consistent with causal constraint learning, though further analysis would be needed to establish that the model has learned causal structure rather than robust discriminative features.
 \end{enumerate}
 
 \subsection{Limitations}
@@ -660,7 +688,7 @@ Six claims are supported empirically:
 
 \paragraph{Random initialization for action optimization.} The solver optimizes $Z$ given fixed $A$. Full planning requires optimizing over $A$ as well, which currently uses random shooting. The random initialization problem may resurface for action optimization even if state optimization is solved.
 
-\paragraph{Generalization to video.} The TAMGSlotEncoder replaces the oracle in the grid world setting (Section~\ref{sec:exp_tamg}), but the DM Control experiments still use oracle-structured features. Extending TAMG to continuous control domains (cartpole, walker, quadruped) requires adapting the visual encoder to rendered MuJoCo frames or real camera input. The structured self-supervision framework (velocity, identity, type) is domain-agnostic and should transfer directly. We consider this the highest-priority next step and expect to complete the continuous-control TAMG integration within two weeks of public release, using the existing DM Control wrapper and encoder infrastructure.
+\paragraph{Generalization to video.} The TAMGSlotEncoder replaces the oracle in the grid world setting (Section~\ref{sec:exp_tamg}), but the DM Control experiments still use oracle-structured features. Extending TAMG to continuous control domains (cartpole, walker, quadruped) requires adapting the visual encoder to rendered MuJoCo frames or real camera input. The structured self-supervision framework (velocity, identity, type) is domain-agnostic and should transfer directly, but the pixel complexity of continuous control (continuous coordinates, partial observability, non-grid layouts) introduces challenges not present in the grid world. We consider this the highest-priority next step.
 
 \paragraph{Baseline strength.} DreamerV3 is the relevant baseline but requires retraining for our environments. The reported DreamerV3 costs are architectural estimates ($\sim$200 ms for 100 RSSM steps) and may not reflect an optimized implementation.
 
@@ -681,14 +709,14 @@ The $\zrep$ initialization insight has a simple intuitive interpretation: to pla
 \label{sec:conclusion}
 % -------------------------------------------------------
 
-We have demonstrated that IWCM eliminates autoregressive error accumulation within the proposed optimization framework, by replacing sequential generation with joint constraint satisfaction. The key empirical results:
+We have demonstrated that IWCM eliminates autoregressive chain drift within the proposed optimization framework, by replacing sequential generation with joint constraint satisfaction. The key empirical results:
 
 \begin{itemize}
   \item \textbf{Flat energy across $H=10$ to $H=100$}: IWCM energy does not compound because each timestep is independently anchored to $z_0$. No chain, no drift.
   \item \textbf{$\zrep$ initialization beats warm-start}: The solver initialized from $z_0$ replication achieves $E=-3.62$ at $H=100$ vs $-3.16$ for warm-start. No rollout model needed.
-  \item \textbf{Recovery from degraded predictions}: Even from a rollout with $95\times$ higher error, IWCM recovers trajectories below ground-truth energy.
+  \item \textbf{Recovery from degraded predictions}: Even from a rollout with $95\times$ higher error, IWCM recovers trajectories below ground-truth energy (Table~\ref{tab:energy_mse}) -- though lower energy is not equivalent to lower physical state error.
   \item \textbf{Cross-surface generalization}: 0.952 AUROC on compositional violation detection across 6 types.
-  \item \textbf{Oracle dependency eliminated}: TAMGSlotEncoder (345K params) trained via structured self-supervision from pixel input alone achieves 0.996 AUROC on corruption detection, matching oracle-slot performance. The energy function remains flat across $10\times$ horizon ($\Delta = +0.003$), proving the drift elimination property survives when slots are computed from pixels.
+  \item \textbf{Oracle dependency eliminated in grid-world pixel setting}: TAMGSlotEncoder (345K params) trained via structured self-supervision from pixel input alone achieves 0.996 AUROC on corruption detection, exceeding oracle-slot performance. The energy function remains flat across $10\times$ horizon ($\Delta = +0.003$), demonstrating that the drift elimination property survives when slots are computed from pixels in this setting.
 \end{itemize}
 
 The central thesis:

@@ -1,113 +1,56 @@
 # IWCM — Implicit Worldline Constraint Models
 
-**World Models as Constraint Solvers**
+**Joint trajectory energy optimization without autoregressive rollout.**
 
-Implementation of the IWCM/AC3/TAMG framework for self-supervised causal law discovery in world models.
+Learned world models based on autoregressive rollout suffer from a structural failure: prediction errors compound over time because each predicted state feeds into the next prediction. IWCM reframes world modeling as full-trajectory constraint satisfaction — the energy function scores entire future trajectories jointly, and the solver finds a valid worldline by gradient descent rather than step-by-step generation.
 
-## Paper
+Key results — [full paper](paper/IWCM.pdf):
 
-*World Models as Constraint Solvers: Implicit Worldline Constraint Models, Adversarial Causal Corruption Curricula, and Self-Supervised Causal Law Discovery*
-
-Located at: `paper/IWCM.tex` and `paper/IWCM.pdf`
-
-## Architecture
-
-The framework has three complementary components:
-
-1. **IWCM** — Energy-based world model over complete latent worldlines. Planning as joint constraint satisfaction, not autoregressive rollout.
-2. **AC3** — Adversarial Causal Corruption Curriculum. Co-evolutionary training with learned corruptor generating near-miss worlds.
-3. **TAMG** — Tangent-Space Adversarial Mutation Grammar with Validator Committee. Self-supervised extension eliminating symbolic oracle dependency.
+| Claim | Evidence |
+|---|---|
+| Autoregressive chain drift removed by construction | Energy flat across H=10–100 (slope 0.0015), rollout baseline drifts +53 |
+| No rollout model needed | z0-replication initialization achieves lower energy than warm-start |
+| Exact solver → amortized 92 μs | 76K-parameter feed-forward network matches K20 energy within \|ΔE\| < 0.002 |
+| Cross-domain (3 continuous-control domains) | Cartpole, cheetah-run, walker-walk — all ~100 μs |
+| AC3 curriculum learns invariants | 0.952 AUROC vs 0.696 random corruptions |
+| Pixel pipeline (grid-world) | TAMGSlotEncoder (345K params, no labels) matches oracle: 0.996 AUROC |
+| Energy vs trajectory accuracy | Both metrics reported; they optimize different objectives |
 
 ## Project Structure
 
 ```
 ICWM/
-├── paper/                    # LaTeX source, PDF, and figures
-├── src/                      # Source code
+├── paper/                    # LaTeX source and PDF
+├── src/
 │   ├── env/                  # Environments and encoders
 │   │   ├── grid_world.py     # Grid world environment
-│   │   ├── objects.py        # Key/Door/Box/Occluder definitions
-│   │   ├── actions.py        # Action definitions
-│   │   ├── renderer.py       # Video frame renderer
-│   │   ├── scenarios.py      # Predefined scenarios
-│   │   ├── data.py           # PyTorch datasets
-│   │   ├── symbolic_state.py # Oracle state access / symbolic encoding
-│   │   ├── oracle_slot_encoder.py  # Oracle slot encoder (19-dim per slot)
-│   │   ├── dm_control_wrapper.py   # DM Control environment wrapper
-│   │   └── dm_control_encoder.py   # DM Control oracle slot encoder
-│   ├── iwcm/                 # IWCM core
-│   │   ├── energy.py         # 5-head IWCM energy function E_θ
-│   │   ├── fused_energy.py   # Fused pooling IWCM (52K params, main architecture)
-│   │   ├── slot_energy.py    # Slot-aware 5-head energy function
-│   │   ├── solver.py         # Gradient descent worldline solver
-│   │   ├── planner.py        # MAP inference planner
-│   │   ├── refinement.py     # Learned refinement operator Φ_θ
-│   │   ├── model.py          # Full IWCM wrapper
-│   │   ├── micro_energy.py   # Latency-optimized MicroIWCM (Triton + CUDA Graph)
+│   │   ├── dm_control_wrapper.py
+│   │   ├── dm_control_encoder.py
+│   │   └── oracle_slot_encoder.py
+│   ├── iwcm/
+│   │   ├── fused_energy.py   # FusedIWCMEnergy (52K params)
+│   │   ├── solver.py         # Gradient descent solver
+│   │   ├── micro_energy.py   # Latency-optimized forward (Triton)
 │   │   ├── triton_ops.py     # Custom Triton CUDA kernels
-│   │   ├── constraints/      # 5 constraint head implementations
-│   │   └── variants/         # Architecture variants (conv1d, pooling_v2, spatial)
-│   ├── ac3/                  # AC3 adversarial training
-│   │   ├── mutations/        # 7 symbolic mutation types (grammar.py)
-│   │   ├── corruptor.py      # Learned corruptor C_φ
-│   │   ├── hardness.py       # Hardness scorer + curriculum
-│   │   ├── oracle.py         # Symbolic constraint oracle
-│   │   └── trainer.py        # AC3 training loop (Alg. 1)
-│   ├── tamg/                 # TAMG self-supervised
-│   │   ├── operators.py      # Learned operator basis
-│   │   ├── slot_encoder.py   # TAMGSlotEncoder (pixels → 19-dim slots)
-│   │   ├── mutations/        # 6 continuous mutation families
-│   │   ├── corruptor.py      # Manifold-preserving corruptor
-│   │   ├── validators/       # 8-member validator committee
-│   │   ├── disagreement.py   # Disagreement score D(τ')
-│   │   └── trainer.py        # TAMG training loop (Alg. 2)
-│   ├── encoder/              # Video encoder (Exp 2)
-│   │   ├── video_encoder.py  # CNN + slot attention
-│   │   ├── slot_attention.py # Iterative slot attention (with spatial anchoring)
-│   │   ├── decoder.py        # Spatial broadcast decoder
-│   │   ├── representation.py # Content/pose/hidden decomposition
-│   │   ├── slot_permanence.py # Temporal slot identity tracking
-│   │   ├── slot_transition.py # Predicted next-frame slot init
-│   │   ├── slot_structure.py # Weak oracle supervision heads
-│   │   └── spatial_anchor.py # Spatial anchoring utilities
-│   ├── metrics/              # 9 evaluation metrics
-│   │   └── evaluation.py
-│   ├── utils/                # Utilities
-│   │   ├── config.py         # Hydra/OmegaConf config
-│   │   ├── seed.py           # Reproducibility
-│   │   ├── logging.py        # Wandb + TensorBoard
-│   │   ├── tensors.py        # Worldline slab ops
-│   │   └── base.py           # Base model class
-│   ├── tamg_simple.py        # Simplified TAMG training harness
-│   └── pixel_slots.py        # Pixel-based slot utilities
-├── configs/                  # YAML configuration
-│   ├── default.yaml
-│   ├── exp1/                 # Experiment 1 configs
-│   └── exp2/                 # Experiment 2 configs
-├── experiments/              # Experiment runner stubs
-│   ├── exp1_symbolic/
-│   ├── exp2_video/
-│   └── analysis/
-├── scripts/                  # CLI scripts (organized by function)
-│   ├── experiments/          # Paper experiment scripts (drift, recovery, etc.)
+│   │   ├── energy.py         # 5-head energy function
+│   │   ├── slot_energy.py    # Slot-aware 5-head energy
+│   │   └── planner.py        # MAP inference planner
+│   └── env/__init__.py
+├── scripts/
+│   ├── experiments/          # Paper experiment scripts
+│   │   ├── _common.py        # Shared helpers (env, data, train_iwcm, solve)
+│   │   ├── dm_drift.py       # Drift comparison
+│   │   ├── dm_z0init.py      # z0-replication vs random vs warm-start
+│   │   ├── dm_recovery.py    # Degraded rollout recovery
+│   │   ├── dm_energy_mse.py  # Energy vs physical MSE correlation (Table 4)
+│   │   ├── solver_optimize.py # K/lr sweep, speed benchmarks
+│   │   ├── solver_profile.py # Step-by-step profiling
+│   │   └── train_amortized_solver.py  # Amortized solver distillation
 │   ├── train/                # Training scripts
-│   ├── data/                 # Data generation scripts
-│   ├── diagnostics/          # Diagnostic and ablation scripts
-│   ├── bench/                # Benchmark scripts
-│   ├── stage2/               # Stage 2 (slot permanence) scripts
-│   ├── exp1/                 # Experiment 1 analysis scripts
-│   ├── dm_control/           # DM Control training scripts
-│   ├── run_experiment.py     # Unified experiment runner
-│   ├── evaluate.py           # Model evaluation
-│   ├── generate_data.py      # Data generation
-│   └── ...                   # Additional analysis scripts
-├── tests/                    # Test suites
-├── data/                     # Generated trajectory datasets
-├── outputs/                  # Checkpoints, logs
-├── notebooks/                # Jupyter notebooks (empty)
-├── FINDINGS.md               # Research findings and results
-├── pyproject.toml
-└── README.md
+│   ├── bench/                # Microsecond-level benchmarks
+│   ├── diagnostics/          # Diagnostic experiments
+│   └── data/                 # Data generation
+└── pyproject.toml
 ```
 
 ## Quick Start
@@ -115,85 +58,62 @@ ICWM/
 ### Installation
 
 ```bash
+python3 -m venv .venv
+source .venv/bin/activate
 pip install -e .
-# For dev tools:
-pip install -e ".[dev]"
 ```
 
-### Generate Training Data
+Requires PyTorch ≥ 2.1 and CUDA (tested on RTX 3060).
+
+### Run DM Control Drift Experiment
 
 ```bash
-# Generate trajectories for all scenarios
-python scripts/generate_data.py --all --horizon 25 --num 10000 --seed 42
-
-# Generate counterfactual pairs
-python scripts/generate_data.py --counterfactuals --horizon 25 --num 1000
+python scripts/experiments/dm_drift.py
 ```
 
-### Run Experiments
+### Train Amortized Solver
 
 ```bash
-# Experiment 1: Symbolic grid world with AC3
-python scripts/run_experiment.py --exp exp1 --model c --horizon 25 --epochs 100
-
-# Experiment 2: Video environment with TAMG
-python scripts/run_experiment.py --exp exp2 --model d --horizon 25 --epochs 150
+python scripts/experiments/train_amortized_solver.py
 ```
 
-### Evaluate a Model
+### Benchmark Solver Speed
 
 ```bash
-python scripts/evaluate.py --checkpoint outputs/checkpoints/model.pt --exp exp1
+python scripts/experiments/solver_optimize.py
 ```
 
-## Experiments
+All experiment scripts are self-contained — they generate data, train models, and produce results in a single run.
 
-### Experiment 1: Symbolic Grid World
-- **Model A**: Baseline next-state predictor
-- **Model B**: IWCM + random corruptions (no adversary)
-- **Model C**: IWCM + AC3 with symbolic oracle
+## Solver Configuration
 
-### Experiment 2: Video Environment
-- **Model A**: Random latent noise baseline
-- **Model B**: Hand-coded symbolic (upper bound)
-- **Model C**: TAMG with Validator Committee
-- **Model D**: TAMG + structured validator disagreement
+| Configuration | Time | Energy accuracy | Use case |
+|---|---|---|---|
+| K=100, lr=0.01 | 51.2 ms | Reference | Paper baseline |
+| K=20, lr=0.08 | 10.9 ms | \|ΔE\| < 0.004 | Practical exact solver |
+| Amortized (76K params) | 92–108 μs | \|ΔE\| < 0.002 | Fast inference |
 
-## Evaluation Metrics
+The amortized solver is trained by distilling the exact K20 solver into a per-timestep MLP. See `scripts/experiments/train_amortized_solver.py`.
 
-1. Constraint violation rate over H ∈ {10, 25, 50, 100}
-2. Object identity preservation
-3. Conservation violation detection (held-out)
-4. Valid/invalid future classification
-5. Repair accuracy on corrupted worldlines
-6. Counterfactual locality accuracy
-7. Splice detection (Δt > 20)
-8. Planning success rate
-9. **Cross-surface law generalization** (primary metric)
+## Domains
 
-## Requirements
+Tested continuous-control domains via DM Control (oracle-structured slots):
 
-- Python ≥ 3.10
-- PyTorch ≥ 2.1
-- CUDA (recommended for training)
-- See `pyproject.toml` for full dependency list
+| Domain | Bodies | Action dim | Status |
+|---|---|---|---|
+| Cartpole swingup | 2 | 1 | Full results |
+| Cheetah run | 7 | 6 | Full results |
+| Walker walk | 7 | 6 | Full results |
 
-## Reproducibility
-
-All experiments use fixed seeds. Configurations are in `configs/`. Model checkpoints and logs are saved to `outputs/`.
-
-```bash
-export IWCM_SEED=42
-python scripts/run_experiment.py --exp exp1 --model c --seed 42
-```
+Grid world with symbolic oracle and pixel-only variants also supported.
 
 ## Citation
 
 ```bibtex
 @article{iwcm2026,
-  title={World Models as Constraint Solvers: Implicit Worldline Constraint Models,
-         Adversarial Causal Corruption Curricula, and Self-Supervised Causal Law Discovery},
-  author={Anonymous},
+  title={Implicit Worldline Constraint Models:
+         Joint Trajectory Energy Optimization Without Autoregressive Rollout},
+  author={P{\'e}rez Mu{\~n}iz, Zabdiel},
   year={2026}
 }
 ```

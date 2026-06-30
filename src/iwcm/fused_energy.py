@@ -16,16 +16,12 @@ class FusedIWCMEnergy(nn.Module):
 
     def forward(self, z0, A, Z):
         B, H, N, d = Z.shape
-        h = self.hidden
         Zf = self.shared(Z)
-
-        # Fused stats: mean+max in one block, fast std via E[x²]-E[x]²
         Z_mean = Zf.mean(dim=1)
         Z_max = Zf.amax(dim=1)
         Z_sq = Zf * Zf
         Z_var = F.relu(Z_sq.mean(dim=1) - Z_mean * Z_mean)
         Z_std = torch.sqrt(Z_var + 1e-5)
-
         Zs = torch.cat([Z_mean, Z_max, Z_std], dim=-1)
         scores = self.head(Zs)
         agg = 0.3 * scores.mean(dim=1) + 0.7 * scores.amax(dim=1)

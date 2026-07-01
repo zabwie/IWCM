@@ -78,7 +78,7 @@ This assumption is similarly mistaken. A world model may instead represent \emph
 
 A second, deeper problem concerns what is learned. Neural networks trained by gradient descent are pushed toward $\hat{y} \approx \mathbb{E}[y \mid x]$, the conditional average, not the underlying causal structure. A world model trained on next-state prediction learns \emph{what usually happens}, not \emph{what must remain true}. These diverge under long-horizon planning, novel configurations, and counterfactual queries.
 
-This paper addresses both problems. We propose IWCM to eliminate autoregressive chain drift, with a z0-replication initialization that requires no rollout model, and demonstrate it empirically on real physics across three continuous-control domains.
+This paper addresses both problems. We propose IWCM to eliminate autoregressive energy drift, with a z0-replication initialization that requires no rollout model, and demonstrate it empirically on real physics across three continuous-control domains.
 
 \begin{figure}[h]
 \centering
@@ -103,6 +103,10 @@ Several works move beyond one-step prediction. Diffuser \citep{janner2022diffuse
 \subsection{Energy-Based Models}
 
 Energy-based models (EBMs) assign scalar scores to configurations rather than generating outputs \citep{lecun2006tutorial}. EBM planners can infer intermediate states between start and goal without explicit generation \citep{du2019implicit}. Our IWCM inherits this energy-based framing but applies it to causal constraint learning over complete worldlines, with a novel z0-replication initialization that makes the solver tractable.
+
+\subsection{Trajectory Optimization and Collocation}
+
+Solving for entire trajectories jointly rather than generating them step-by-step is a standard technique in optimal control, where direct transcription methods optimize over state and action variables simultaneously \citep{betts2010}. Differentiable MPC \citep{amos2018} and implicit behavioral cloning \citep{florence2022} learn cost functions or dynamics that are then optimized at inference time. IWCM shares the joint-optimization structure of these approaches, with the key difference that the ``cost'' is a learned energy trained specifically to detect causal constraint violations across the full trajectory, rather than task reward or imitation loss.
 
 \subsection{Object-Centric Representations}
 
@@ -211,12 +215,12 @@ The critical insight for tractability is the \textbf{z0-replication initializati
 
 This places the initial candidate inside the valid state manifold (every individual state is the real observed initial state). The gradient descent only needs to adjust the trajectory to satisfy action-conditioned dynamics, never needing to cross the high-energy plateau that separates random initialization from the valid region.
 
-\begin{observation}[Drift Elimination by Construction]
+\begin{observation}[Energy Drift Elimination by Construction]
 \label{prop:drift_elim}
 In IWCM, $E_\theta(z_0, A, Z)$ is a direct function of $z_0$ for every $z_t \in Z$. No $z_t$ is computed as a function of any $\hat{z}_{t-1}$. Single-step model errors therefore cannot accumulate through a prediction chain. With $\zrep$ initialization, the solver operates entirely within the valid manifold at initialization. Under standard gradient descent with appropriate step size, constraint satisfaction does not increase with horizon length -- the initialization is already valid and the solver refines within the valid region.
 \end{observation}
 
-\subsection{Why Drift Disappears}
+\subsection{Why Energy Drift Disappears}
 
 In rollout, the dependency graph is a directed chain: $z_0 \to \hat{z}_1 \to \hat{z}_2 \to \cdots$. Errors propagate exclusively forward, compounding multiplicatively (Proposition~\ref{prop:drift}).
 
@@ -317,6 +321,8 @@ We conduct five experiments on two environments to test the drift elimination cl
   \item \textbf{Pixel pipeline: self-supervised slot discovery} (Section~\ref{sec:exp_tamg}): A learned visual encoder (TAMGSlotEncoder) replaces the symbolic oracle, trained via self-supervised losses from pixel frames only. Achieves 0.996 AUROC matching oracle performance.
 \end{enumerate}
 
+Throughout these experiments, a methodological caveat applies: the energy metric $E_\theta$ measures constraint satisfaction under the learned function, not physical trajectory accuracy. Because the solver directly minimizes $E_\theta$, showing it decreases is expected. We therefore report physical MSE (Table~\ref{tab:energy_mse}) alongside energy in all DM Control experiments to distinguish constraint satisfaction from exact trajectory reconstruction.
+
 \subsection{Grid World: Cross-Surface Law Generalization}
 \label{sec:exp_grid}
 
@@ -410,7 +416,7 @@ Step & E(true) & E(cold) & E(z0rep) & E(warm) & $\Delta$ cold & $\Delta$ z0rep &
 \begin{figure}[h]
 \centering
 \includegraphics[width=0.92\textwidth]{fig1_drift.pdf}
-\caption{Drift divergence at $H=100$ on DM Control cartpole. Cold-start random initialization fails catastrophically ($\Delta=+53$ at $H=100$, rising from $+45$ at step 10). Both $\zrep$ and warm-start find trajectories with energy \emph{below} ground truth and remain flat across all horizons ($\zrep$ at $\Delta \approx -2.66$, warm at $\Delta \approx -2.20$). The gap between cold and the two successful methods demonstrates that IWCM eliminates autoregressive chain drift when properly initialized -- and $\zrep$ achieves this without any rollout model.}
+\caption{Energy drift divergence at $H=100$ on DM Control cartpole. Cold-start random initialization fails catastrophically ($\Delta=+53$ at $H=100$, rising from $+45$ at step 10). Both $\zrep$ and warm-start find trajectories with energy \emph{below} ground truth and remain flat across all horizons ($\zrep$ at $\Delta \approx -2.66$, warm at $\Delta \approx -2.20$). The gap between cold and the two successful methods demonstrates that IWCM eliminates autoregressive energy drift when properly initialized -- and $\zrep$ achieves this without any rollout model.}
 \label{fig:drift}
 \end{figure}
 
@@ -517,7 +523,7 @@ The total loss combines these with the IWCM margin loss:
 \begin{figure}[h]
 \centering
 \includegraphics[width=0.75\textwidth]{fig3_tamg_drift.pdf}
-\caption{Flat energy across horizon on TAMG-encoded pixel slots. TAMG energy remains at $\approx -1.69$ from $H=10$ to $H=100$ (log-slope 0.0015), while random initialization starts at $+12.6$ and drifts upward with $H$. The drift elimination property of IWCM survives when slots are computed from pixels rather than simulator internals.}
+\caption{Flat energy across horizon on TAMG-encoded pixel slots. TAMG energy remains at $\approx -1.69$ from $H=10$ to $H=100$ (log-slope 0.0015), while random initialization starts at $+12.6$ and drifts upward with $H$. The energy drift elimination property of IWCM survives when slots are computed from pixels rather than simulator internals.}
 \label{fig:tamg_drift}
 \end{figure}
 
@@ -567,7 +573,7 @@ Slope vs $\log H$ & 0.0015 & & \\
   
   \item \textbf{TAMG is 30$\times$ smaller and more accurate than frozen backbones.} TAMGSlotEncoder (345K params) achieves 0.996 AUROC, while frozen ResNet-18 (11M params, 30$\times$ larger) achieves only 0.63. This is not a scaling issue -- it is an architectural one: TAMG's structured self-supervision (velocity, identity, type) pulls the backbone toward physics features, while ImageNet pretraining encodes object semantics irrelevant to causal constraint learning.
   
-  \item \textbf{Flat energy survives the pixel pipeline.} TAMG-encoded slots produce energy $-1.695$ at $H=10$ and $-1.692$ at $H=100$ ($\Delta = +0.003$), with slope 0.0015 against $\log H$. The drift elimination property of IWCM is preserved when slots are computed from pixels rather than simulator internals.
+  \item \textbf{Flat energy survives the pixel pipeline.} TAMG-encoded slots produce energy $-1.695$ at $H=10$ and $-1.692$ at $H=100$ ($\Delta = +0.003$), with slope 0.0015 against $\log H$. The energy drift elimination property of IWCM is preserved when slots are computed from pixels rather than simulator internals.
   
   \item \textbf{Spatial anchoring prevents collapse.} Without spatial anchoring, all slot queries attend to identical feature vectors and produce uniform identity embeddings that kill the contrastive gradient. Grid-cell initialization of slot biases (3$\times$3 grid for 8 slots) ensures each slot starts with a distinct spatial focus.
 \end{enumerate}
@@ -658,7 +664,7 @@ The experimental sections (Section~\ref{sec:experiments}) present the core resul
 
 \subsection{Broader Implications}
 
-Long-horizon planning failure is a central bottleneck for autonomous agents, robotics, and scientific planning. The structural insight formalized here -- that the chain dependency of autoregressive rollout causes drift, and that replacing generation with constraint satisfaction eliminates it -- applies beyond this specific architecture.
+Long-horizon planning failure is a central bottleneck for autonomous agents, robotics, and scientific planning. The structural insight formalized here -- that the chain dependency of autoregressive rollout causes energy drift, and that replacing generation with constraint satisfaction eliminates it -- applies beyond this specific architecture.
 
 The $\zrep$ initialization insight has a simple intuitive interpretation: to plan valid futures, start from a valid present and adjust. Humans do not plan random futures and search for good ones. We start from the current state and imagine small deviations. The $\zrep$ solver does the same, computationally.
 
@@ -667,7 +673,7 @@ The $\zrep$ initialization insight has a simple intuitive interpretation: to pla
 \label{sec:conclusion}
 % -------------------------------------------------------
 
-We have demonstrated that IWCM eliminates autoregressive chain drift by replacing sequential generation with joint constraint satisfaction. The $\zrep$-initialized solver produces flat energy across horizons $H \in [10, 100]$ without requiring any rollout model, and recovers from deliberately degraded predictions. Across three continuous-control domains, the solver finds trajectories below ground-truth energy with zero drift slope. Together with the AC3 compositional corruption curriculum (0.952 AUROC on invariant discrimination) and the TAMG pixel pipeline (0.971--0.996 AUROC from raw pixels), these results support the central thesis:
+We have demonstrated that IWCM eliminates autoregressive energy drift by replacing sequential generation with joint constraint satisfaction. The $\zrep$-initialized solver produces flat energy across horizons $H \in [10, 100]$ without requiring any rollout model, and recovers from deliberately degraded predictions. Across three continuous-control domains, the solver finds trajectories below ground-truth energy with zero drift slope. Together with the AC3 compositional corruption curriculum (0.952 AUROC on invariant discrimination) and the TAMG pixel pipeline (0.971--0.996 AUROC from raw pixels), these results support the central thesis:
 
 \begin{quote}
 \textit{Autoregressive drift is not a capacity problem. It is an architectural problem. The future should be solved, not generated.}

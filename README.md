@@ -98,12 +98,9 @@ All experiment scripts are self-contained — they generate data, train models, 
 ## Solver Configuration
 
 | Configuration | Time | Energy accuracy | Use case |
-|---|---|---|---|
+|---|---|---|---|---|
 | K=100, lr=0.01 | 51.2 ms | Reference | Paper baseline |
 | K=20, lr=0.08 | 10.9 ms | \|ΔE\| < 0.004 | Practical exact solver |
-| Amortized (76K params) | 92–108 μs | \|ΔE\| < 0.002 | Fast inference |
-
-The amortized solver is trained by distilling the exact K20 solver into a per-timestep MLP. See `scripts/experiments/train_amortized_solver.py`.
 
 ## Domains
 

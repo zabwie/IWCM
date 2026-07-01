@@ -9,14 +9,13 @@ class FusedIWCMEnergy(nn.Module):
         super().__init__()
         self.hidden = hidden
         self.shared = nn.Linear(d_slot, hidden)
-        self.head = nn.Sequential(
-            nn.Linear(hidden * 3, hidden), nn.GELU(),
-            nn.Linear(hidden, 3))
+        self.head = nn.Linear(hidden * 3, 3)  # ponytail: direct projection, no activation bottleneck
         self.register_buffer("lambdas", torch.tensor([1.0, 1.0, 1.5]))
 
     def forward(self, z0, A, Z):
         B, H, N, d = Z.shape
         Zf = self.shared(Z)
+        Zf = F.layer_norm(Zf, [Zf.size(-1)])  # ponytail: prevents multi-body signal cancellation
         Z_mean = Zf.mean(dim=1)
         Z_max = Zf.amax(dim=1)
         Z_sq = Zf * Zf

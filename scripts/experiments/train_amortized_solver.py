@@ -44,7 +44,7 @@ for z0, A, Zt in ts[:60]:
     X_z0.append(zb); X_A.append(Ab); Y.append(Z_k20)
 
 net = torch.nn.Sequential(
-    torch.nn.Linear(ds + 1 + 1, 256), torch.nn.ReLU(),  # z0[t] + A[t] + time
+    torch.nn.Linear(ds + da + 1, 256), torch.nn.ReLU(),  # z0[t] + A[t] + time
     torch.nn.Linear(256, 256), torch.nn.ReLU(),
     torch.nn.Linear(256, ds),
 ).to(DEV)

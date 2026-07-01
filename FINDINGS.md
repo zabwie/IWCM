@@ -16,23 +16,18 @@ Autoregressive world models drift because each predicted state becomes the next 
 |---|---|---|---|---|
 | Exact K=100, lr=0.01 | 51.2 ms | ref | 1× |
 | Exact K=20, lr=0.08 | 10.9 ms | < 0.004 | 5× |
-| **Amortized solver** (76K params) | **92–108 μs** | < 0.002 vs K20 | **500×** |
-
-The amortized solver is a per-timestep MLP trained by distilling the exact K20 solver. One forward pass, no autograd. Speedup comes from removing inference-time backward passes, not lower precision (fp16/bf16 drift |ΔE| > 2.0).
 
 ---
 
 ## Cross-Domain Continuous Control
 
-All at H=100, z0-rep initialization, amortized solver:
+K20 solver at H=100, z0-rep initialization:
 
-| Domain | Bodies | Action dim | Amort. MSE | Amort. ΔE | Time |
-|---|---|---|---|---|---|
-| Cartpole swingup | 2 | 1 | 8.2e-4 | -0.83 | 100 μs |
-| Cheetah run | 7 | 6 | 8.8e-3 | -4.51 | 106 μs |
-| Walker walk | 7 | 6 | 4.0e-6 | -0.03 | 96 μs |
-
-Rollout MLP achieves lower exact-trajectory MSE (regression objective), but IWCM produces consistently negative energy (constraint-satisfaction objective). Both are small in absolute normalized scale.
+| Domain | Bodies | Action dim | K20 ΔE vs GT | K20 MSE vs GT |
+|---|---|---|---|---|
+| Cartpole swingup | 2 | 1 | -2.40 | 1.4e-3 |
+| Cheetah run | 7 | 6 | -1.86 | 8.7e-3 |
+| Walker walk | 7 | 6 | -15.20 | 1.5e-1 |
 
 ---
 
@@ -100,7 +95,7 @@ Even from a rollout model with 95× higher MSE (1 hidden layer, 32 units, 15 epo
 | `scripts/experiments/dm_drift.py` | Drift comparison |
 | `scripts/experiments/dm_z0init.py` | z0-rep vs random vs warm-start |
 | `scripts/experiments/dm_energy_mse.py` | Energy vs MSE correlation (Table 4) |
-| `scripts/experiments/train_amortized_solver.py` | Amortized solver distillation |
+
 | `scripts/experiments/solver_optimize.py` | K/lr sweep, speed benchmarks |
 | `src/iwcm/fused_energy.py` | FusedIWCMEnergy (52K params) |
 | `src/iwcm/micro_energy.py` | MicroIWCM (Triton-optimized forward) |

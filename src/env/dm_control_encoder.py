@@ -59,17 +59,21 @@ DOMAIN_CONFIGS: Dict[str, dict] = {
     },
     'walker': {
         'bodies': [
-            {'name': 'torso',        'body_idx': 1,  'type': 0},
-            {'name': 'foot',         'body_idx': 2,  'type': 3},
-            {'name': 'foot_left',    'body_idx': 3,  'type': 3},
-            {'name': 'leg',          'body_idx': 4,  'type': 1},
-            {'name': 'leg_left',     'body_idx': 5,  'type': 1},
-            {'name': 'thigh',        'body_idx': 6,  'type': 1},
-            {'name': 'thigh_left',   'body_idx': 7,  'type': 1},
+            # rootz/rootx/rooty (free joint, 3 dofs), then right leg (hip, knee, ankle),
+            # left leg (hip, knee, ankle) — 9 total qpos/qvel dims
+            {'name': 'torso',        'body_idx': 1,  'type': 0,  'qpos_idx': [0,1,2],  'qvel_idx': [0,1,2]},
+            {'name': 'thigh',        'body_idx': 6,  'type': 1,  'qpos_idx': [3],      'qvel_idx': [3]},
+            {'name': 'leg',          'body_idx': 4,  'type': 1,  'qpos_idx': [4],      'qvel_idx': [4]},
+            {'name': 'foot',         'body_idx': 2,  'type': 3,  'qpos_idx': [5],      'qvel_idx': [5]},
+            {'name': 'thigh_left',   'body_idx': 7,  'type': 1,  'qpos_idx': [6],      'qvel_idx': [6]},
+            {'name': 'leg_left',     'body_idx': 5,  'type': 1,  'qpos_idx': [7],      'qvel_idx': [7]},
+            {'name': 'foot_left',    'body_idx': 3,  'type': 3,  'qpos_idx': [8],      'qvel_idx': [8]},
         ],
         'state_dim': 23,
         'pos_scale': 10.0,
         'vel_scale': 8.0,
+        'qpos_dim': 9,
+        'qvel_dim': 9,
     },
 }
 

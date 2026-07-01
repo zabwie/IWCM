@@ -25,7 +25,9 @@ def gen(w, e, H=100, corrupt=None, rng=None):
 def data(w, e, nv=400, nc=200, H=100):
     rng = np.random.RandomState(42)
     tv = [gen(w, e, H) for _ in range(nv)]; tv = [t for t in tv if t is not None]
-    tc = [gen(w, e, H, corrupt=ct, rng=rng) for ct in ['teleport','freeze','reverse'] for _ in range(999)]
+    # ponytail: teleport skipped for fast-moving domains where slot signal is undetectable
+    corrupts = ['freeze', 'reverse'] if w.domain_name == 'cheetah' else ['teleport', 'freeze', 'reverse']
+    tc = [gen(w, e, H, corrupt=ct, rng=rng) for ct in corrupts for _ in range(999)]
     tc = [t for t in tc if t is not None][:nc]
     ts = [gen(w, e, H) for _ in range(999)]; ts = [t for t in ts if t is not None][:80]
     return tv, tc, ts

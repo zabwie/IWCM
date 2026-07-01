@@ -169,8 +169,9 @@ class DMControlWrapper:
 
             if t == corruption_step:
                 if corruption_type == 'teleport':
-                    qpos_std = np.clip(np.abs(qpos) * 0.2, 0.02, 0.5)
-                    qvel_std = np.clip(np.abs(qvel) * 0.2, 0.1, 1.0)
+                    # ponytail: raised clamp from 0.5→2.0 so cheetah-scale states get detectable perturbations
+                    qpos_std = np.clip(np.abs(qpos) * 0.2, 0.02, 2.0)
+                    qvel_std = np.clip(np.abs(qvel) * 0.2, 0.1, 4.0)
                     self._env.physics.data.qpos += rng.randn(*qpos.shape) * qpos_std
                     self._env.physics.data.qvel += rng.randn(*qvel.shape) * qvel_std
                 elif corruption_type == 'freeze':

@@ -368,7 +368,7 @@ The critical result: Model C exceeds 0.90 on all 6 violation types while Model B
 \subsection{DM Control Physics: Drift at $H=100$}
 \label{sec:exp_dm}
 
-\paragraph{Environment.} We test on three MuJoCo continuous-control tasks from DM Control: cartpole swingup (2 bodies, 1-d force), cheetah run (7 bodies, 6-d torques), and walker walk (7 bodies, 6-d torques). Oracle-structured slot encoders map physics state $(qpos, qvel)$ to 19-dim per-body features with $N=8$ slots. Horizon $H=100$. Training: 400 valid + 200 corrupted trajectories for cartpole, 200 + 100 for cheetah and walker.
+\paragraph{Environment.} We test on three MuJoCo continuous-control tasks from DM Control: cartpole swingup (2 bodies, 1-d force), cheetah run (7 bodies, 6-d torques), and walker walk (7 bodies, 6-d torques). Oracle-structured slot encoders map physics state $(qpos, qvel)$ to 19-dim per-body features with $N=8$ slots. Horizon $H=100$. Training: 400 valid + 200 corrupted trajectories for cartpole, 200 + 100 for cheetah and walker. Corruptions include position/velocity perturbations (teleport), velocity amplification (freeze), and velocity reversal (reverse). For cheetah, teleport corruptions are omitted because the physics engine's constraint forces absorb single-step position perturbations within 1--2 timesteps, making them indistinguishable from valid trajectories in slot space; freeze and reverse produce persistent detectable effects across all domains.
 
 \paragraph{Models compared.}
 

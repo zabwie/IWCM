@@ -78,6 +78,8 @@ This assumption is similarly mistaken. A world model may instead represent \emph
 
 A second, deeper problem concerns what is learned. Neural networks trained by gradient descent are pushed toward $\hat{y} \approx \mathbb{E}[y \mid x]$, the conditional average, not the underlying causal structure. A world model trained on next-state prediction learns \emph{what usually happens}, not \emph{what must remain true}. These diverge under long-horizon planning, novel configurations, and counterfactual queries.
 
+This paper addresses both problems. We propose IWCM to eliminate autoregressive chain drift, with a z0-replication initialization that requires no rollout model, and demonstrate it empirically on real physics across three continuous-control domains.
+
 \begin{figure}[h]
 \centering
 \includegraphics[width=0.95\textwidth]{HorizontalArchitecture.png}
@@ -383,8 +385,6 @@ The critical result: Model C exceeds 0.90 on all 6 violation types while Model B
 
 \paragraph{Drift metric.} The energy gap $\Delta = E(z_0, A, Z_\text{pred}) - E(z_0, A, Z_\text{true})$. Positive $\Delta$ means the predicted trajectory has higher constraint violation energy than ground truth -- it has drifted. Negative $\Delta$ means the solver found a trajectory \emph{more} constraint-satisfying than the real physics (which contains natural noise).
 
-\paragraph{Key result.}
-
 \begin{table}[h]
 \centering
 \caption{Drift comparison at $H=100$ on DM Control cartpole. Energy gap $\Delta$ vs ground truth at each step.}
@@ -438,9 +438,6 @@ $H$ & \multicolumn{3}{c}{State MSE (pos+vel)} & \multicolumn{3}{c}{Energy $\Delt
 Two observations clarify the relationship. First, rollout achieves lower exact-trajectory MSE -- as expected, since it is directly trained on next-step regression, and cartpole is a simple dynamical system where a 2$\times$256 MLP can fit the training distribution well. However, rollout's energy gap is positive and grows with horizon ($+0.004 \to +0.046$), confirming that exact trajectory accuracy does not prevent autoregressive energy drift. Second, the $\zrep$ solver produces higher MSE on the exact trajectory but achieves strongly negative energy ($-0.698$ at $H=100$) that is flat across horizons -- it trades exact trajectory reconstruction for constraint satisfaction, which is the correct behavior for a constraint-solver architecture.
 
 The warm-start solver combines both strengths: near-rollout physical accuracy (MSE $1.6\times10^{-4}$) with negative flat energy ($-0.599$).
-
-\subsection{Initialization Ablation}
-\label{sec:exp_init}
 
 \begin{table}[h]
 \centering
@@ -602,7 +599,7 @@ We compare IWCM to four prior world model families on the three criteria that de
 
 \begin{table}[h]
 \centering
-\caption{Comparison to prior world model approaches. DreamerV3~\citep{hafner2023dreamerv3}, Diffuser~\citep{janner2022diffuser}, Trajectory Transformer~\citep{janner2021offline}, and DWM~\citep{ding2024diffusion}. Among the compared methods, IWCM with $\zrep$ initialization is the only one that combines non-autoregressive evaluation with no rollout-model requirement and validation on continuous physics.}
+\caption{Comparison to prior world model approaches. DreamerV3~\citep{hafner2023dreamerv3}, Diffuser~\citep{janner2022diffuser}, Trajectory Transformer~\citep{janner2021offline}, and DWM~\citep{ding2024diffusion}. ``Drift-free'' refers to the learned energy metric (Section~\ref{sec:exp_dm}) -- IWCM eliminates autoregressive energy drift by construction but, like all learned models, does not guarantee physical trajectory accuracy. Among the compared methods, IWCM with $\zrep$ initialization is the only one that combines non-autoregressive energy evaluation with no rollout-model requirement and validation on continuous physics.}
 \label{tab:comparison}
 \begin{tabular}{@{}lccc@{}}
 \toprule
